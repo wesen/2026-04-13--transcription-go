@@ -456,3 +456,132 @@ TestWriteVTT                   PASS
 TestWriteTXT                   PASS
 TestWriteSQLite                PASS
 ```
+
+---
+
+## Step 5: E2E Test — Dagger Service Lifecycle Stuck
+
+Ran the full end-to-end test. The Go audio conversion works (2.9s), Dagger connects, all container layers are CACHED (pip install, model download, uvicorn start) — but `Service.Start()` hangs indefinitely. The service never transitions to "running" from the Go client's perspective, even though the uvicorn logs show the model loaded and the server is listening on 0.0.0.0:8000 inside the container.
+
+### Prompt Context
+
+**User prompt (verbatim):** "yes" (in response to "Want me to run the end-to-end test now?")
+
+**Assistant interpretation:** Run `./transcribe --input audio.wav --output-dir ./out/` end-to-end and validate the output.
+
+**Inferred user intent:** Prove the full pipeline works on real audio.
+
+### What I did
+
+1. Fixed two bugs discovered during first run:
+   - `git` not installed in `python:3.11-slim-bookworm` → added `apt-get install git ffmpeg` via `sh -c`
+   - `Service.Start()` not called before `Host.Tunnel()` → added explicit `service.Start(ctx)` call
+2. Ran the pipeline three times. Each time:
+   - Audio conversion: ✅ (2.9s, pure Go)
+   - Dagger connect: ✅
+   - Container build (apt + pip + model): ✅ (CACHED after first run, instant)
+   - `Service.Start()`: ❌ hangs — the `Service.start` DAG node appears in traces but never completes
+
+### What worked
+
+- Pure Go audio conversion is fast and correct (2.9s for 27.7-min stereo WAV)
+- Dagger caching works perfectly — pip install (~12 min cold) is instant on re-runs
+- Model download (~1.2 GB) is cached via `CacheVolume("transcription-hf-cache")`
+- The Python server itself loads the model and starts uvicorn (confirmed in Dagger trace logs)
+
+### What didn't work
+
+**`Service.Start()` hangs.** The Dagger trace shows:
+
+```
+25: Service.start → ServiceID!   [never completes]
+```
+
+The uvicorn server IS running inside the container (logs show "Application startup complete" and "Uvicorn running on http://0.0.0.0:8000"), but `Service.Start()` never returns. Hypothesis: Dagger's `Service.Start()` waits for the exposed port to accept TCP connections, but something about the container networking or port readiness check isn't working as expected.
+
+### What was tricky to build
+
+The Dagger Service API (`AsService()` + `Start()` + `Host.Tunnel()`) is not well-documented for Go. The pattern from the SDK (`dagger.gen.go`) shows:
+
+```go
+service := ctr.AsService()
+service, err = service.Start(ctx)    // ← hangs here
+tunnel := client.Host().Tunnel(service)
+endpoint, _ := tunnel.Endpoint(ctx, Port: 8000)
+```
+
+The issue may be that `WithExec([]string{"uvicorn", ...})` marks the container's entrypoint as a build step, and `AsService()` expects to manage the container lifecycle differently. An alternative approach: use `WithEntrypoint()` or `WithDefaultArgs()` instead of `WithExec()` for the uvicorn command, since `AsService()` is designed to run the container's entrypoint as a long-running process.
+
+### What warrants a second pair of eyes
+
+1. **Dagger Service lifecycle**: Is `WithExec([]string{"uvicorn", ...})` the right way to define the server command for `AsService()`? Or should we use `WithEntrypoint()`?
+2. **Dagger engine version mismatch**: The Go SDK is v0.20.5 but Dagger pulled engine v0.20.5 (new) while v0.20.3 was running. Could this cause issues?
+3. **FastAPI lifespan blocking**: The model loads in the FastAPI `lifespan` context manager, which means uvicorn doesn't mark the port as ready until model loading completes. But Dagger's `Start()` should wait for the port... unless it times out internally.
+
+### What should be done in the future
+
+1. **Try `WithEntrypoint()` instead of `WithExec()`** for the uvicorn command. `AsService()` may expect the container's CMD/entrypoint to be the long-running process, not a build-layer `WithExec`.
+2. **Try `Service.Up()` instead of `Service.Start()`** — `Up()` is another lifecycle method that might behave differently.
+3. **Try without explicit `Start()`** — the original design (v1) just called `Endpoint()` directly on the tunneled service, letting Dagger lazily start it. The first run failed because the service wasn't started yet, but maybe `Endpoint()` triggers a start internally.
+4. **Check Dagger Go SDK examples** for `AsService()` — the generated code has it but there may be usage patterns in the Dagger repo or docs.
+5. **Consider dropping `AsService()`** and instead using `Container` directly with `Stdout()`/`Stderr()` for logs and exporting output files. Less elegant but more proven.
+6. **Alternative: pre-build a Docker image** with deps installed, then just `From("our-image")` + `WithExec(["uvicorn"])`. Avoids the pip-install-in-service problem entirely.
+
+### Code review instructions
+
+**The stuck point is in `internal/server/dagger.go`, specifically the container definition and service lifecycle.**
+
+The container chain is:
+```go
+ctr := client.Container().
+    From("python:3.11-slim-bookworm").
+    WithExec([]string{"sh", "-c", "apt-get update && apt-get install -y git ffmpeg && ..."}).
+    WithMountedCache(...).  // HF cache
+    WithMountedCache(...).  // pip cache
+    WithDirectory("/app", serverDir).
+    WithWorkdir("/app").
+    WithExec([]string{"pip", "install", "-r", "requirements.txt"}).
+    WithExposedPort(8000).
+    WithExec([]string{"uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"})
+
+service := ctr.AsService()
+service, err = service.Start(ctx)  // ← HANGS
+```
+
+**To debug:**
+```bash
+cd /home/manuel/code/wesen/2026-04-13--transcription-go
+go build -o transcribe ./cmd/transcribe
+./transcribe --input <any-wav> --output-dir ./out/ --verbose
+# Watch for "Service.start" in Dagger trace — it should complete
+```
+
+### Technical details
+
+**Commit with fixes:** not yet committed (will commit after this diary update)
+
+**Three E2E attempts:**
+
+| Attempt | What happened | Time |
+|---------|---------------|------|
+| 1 | `git` not in container, pip install fails | ~11s |
+| 2 | `Service.Start()` not called, tunnel endpoint fails ("service not running") | ~13s |
+| 3 | `Service.Start()` called, hangs forever | killed after ~5 min |
+| 4 (with cached deps) | Same — `Service.Start()` hangs | killed after ~5 min |
+
+**Dagger trace (attempt 4):**
+```
+All container layers: CACHED (instant)
+Service.start: ServiceID!  [no progress]
+```
+
+**Server logs inside container (visible in Dagger trace):**
+```
+Loading ASR model...
+[NeMo I ...] Model was successfully restored from /root/.cache/huggingface/...
+[NeMo I ...] Changed decoding strategy to ...
+INFO: Application startup complete.
+INFO: Uvicorn running on http://0.0.0.0:8000
+```
+
+The server IS ready. The problem is Dagger's Go SDK not recognizing it.

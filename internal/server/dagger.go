@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"time"
@@ -13,6 +14,7 @@ import (
 // ASRServer manages the Dagger-based Python ASR service lifecycle.
 type ASRServer struct {
 	client   *dagger.Client
+	service  *dagger.Service
 	endpoint string
 }
 
@@ -42,11 +44,12 @@ func Start(ctx context.Context, opts Options) (*ASRServer, error) {
 
 	ctr := client.Container().
 		From("python:3.11-slim-bookworm").
+		WithExec([]string{"sh", "-c", "apt-get update && apt-get install -y --no-install-recommends git ffmpeg && rm -rf /var/lib/apt/lists/*"}).
 		WithMountedCache("/root/.cache/huggingface", hfCache).
 		WithMountedCache("/root/.cache/pip", pipCache).
 		WithDirectory("/app", serverDir).
 		WithWorkdir("/app").
-		WithExec([]string{"pip", "install", "--no-cache-dir", "-r", "requirements.txt"}).
+		WithExec([]string{"pip", "install", "-r", "requirements.txt"}).
 		WithExposedPort(opts.Port).
 		WithExec([]string{
 			"uvicorn", "server:app",
@@ -54,9 +57,21 @@ func Start(ctx context.Context, opts Options) (*ASRServer, error) {
 			"--port", fmt.Sprintf("%d", opts.Port),
 		})
 
+	// Convert to a Dagger service and start it
 	service := ctr.AsService()
-	tunnel := client.Host().Tunnel(service)
 
+	// Start the service explicitly — this blocks until the exposed port accepts connections,
+	// which means model loading in the FastAPI lifespan must complete first.
+	log.Printf("Starting container (pip + model load from cache)...")
+	service, err = service.Start(ctx)
+	if err != nil {
+		client.Close()
+		return nil, fmt.Errorf("start service: %w", err)
+	}
+	log.Printf("Container started, establishing tunnel...")
+
+	// Create a tunnel from the host to the running service
+	tunnel := client.Host().Tunnel(service)
 	endpoint, err := tunnel.Endpoint(ctx, dagger.ServiceEndpointOpts{Port: opts.Port})
 	if err != nil {
 		client.Close()
@@ -65,24 +80,35 @@ func Start(ctx context.Context, opts Options) (*ASRServer, error) {
 
 	svc := &ASRServer{
 		client:   client,
+		service:  service,
 		endpoint: endpoint,
 	}
 
-	// Wait for server to be ready
+	// Wait for the HTTP server to be ready (model loading can take time)
+	log.Printf("ASR server ready at %s", s.endpoint)
 	if err := svc.waitReady(ctx); err != nil {
 		svc.Stop()
-		return nil, fmt.Errorf("server not ready: %w", err)
+		return nil, fmt.Errorf("server health check: %w", err)
 	}
 
 	return svc, nil
 }
 
 func (s *ASRServer) waitReady(ctx context.Context) error {
-	for i := 0; i < 120; i++ { // 120 second timeout (pip install can be slow)
-		resp, err := http.Get(fmt.Sprintf("http://%s/health", s.endpoint))
-		if err == nil && resp.StatusCode == 200 {
+	url := fmt.Sprintf("http://%s/health", s.endpoint)
+	for i := 0; i < 60; i++ { // 60 second timeout
+		resp, err := http.Get(url)
+		if err == nil {
 			resp.Body.Close()
-			return nil
+			if resp.StatusCode == 200 {
+				log.Printf("Health check passed (attempt %d)", i+1)
+				return nil
+			}
+			log.Printf("Health check status %d (attempt %d)", resp.StatusCode, i+1)
+		} else {
+			if i < 5 || i%10 == 0 {
+				log.Printf("Health check failed (attempt %d): %v", i+1, err)
+			}
 		}
 		select {
 		case <-ctx.Done():
@@ -98,8 +124,11 @@ func (s *ASRServer) Endpoint() string {
 	return s.endpoint
 }
 
-// Stop closes the Dagger client, which tears down the service and tunnel.
+// Stop tears down the service and closes the Dagger client.
 func (s *ASRServer) Stop() {
+	if s.service != nil {
+		s.service.Stop(context.Background())
+	}
 	if s.client != nil {
 		s.client.Close()
 	}

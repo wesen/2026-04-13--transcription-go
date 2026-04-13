@@ -24,3 +24,8 @@ v3: Eliminated ffmpeg dependency. Pure Go audio conversion (go-audio/wav + oov/a
 
 Implemented full pipeline (tasks 1-7, 9). 16 source files, 10/10 tests passing. Commit 840a847. Remaining: end-to-end test.
 
+
+## 2026-04-13
+
+E2E test: Service.Start() hangs despite server running. Container + pip + model all cached. Need to investigate AsService() lifecycle (WithEntrypoint vs WithExec). Diary Step 5.
+
