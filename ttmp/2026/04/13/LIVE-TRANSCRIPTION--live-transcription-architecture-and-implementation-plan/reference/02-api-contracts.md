@@ -15,7 +15,9 @@ Intent: long-term
 Owners: []
 RelatedFiles:
     - Path: cmd/transcribe/live.go
-      Note: Replay-oriented live CLI flags reflect the current Phase 1 source strategy
+      Note: |-
+        Replay-oriented live CLI flags reflect the current Phase 1 source strategy
+        API contract doc now reflects WS as the default live transport
     - Path: internal/asr/client.go
       Note: Implemented Go-side batch and chunk HTTP contracts
     - Path: internal/asr/client_test.go
@@ -69,6 +71,7 @@ WhenToUse: Use when implementing or reviewing client/server protocol changes for
 
 
 
+
 # Live transcription API contracts
 
 ## Purpose
@@ -80,6 +83,11 @@ This document captures the protocol shape for three layers of the system:
 3. the planned WebSocket streaming API for the real production architecture.
 
 For Phase 1 simulated live testing, the current recommended source is a prerecorded WAV replayed on a synthetic timeline rather than a filesystem chunk watcher. That source choice shapes the current client-side runner, but does not change the transport contracts below.
+
+Current operational stance:
+
+- **default live transport:** `ws`
+- **fallback/debug transport:** `chunk`
 
 The intent is to make the transport boundary explicit so the Go and Python implementations can evolve without ambiguity.
 
@@ -171,6 +179,8 @@ POST /transcribe/chunk
 
 ### Current implementation notes
 
+- The HTTP chunk contract is still implemented and supported.
+- It is now primarily a fallback/debug comparison path rather than the recommended default live transport.
 - The Python server normalizes the uploaded audio chunk to `16kHz mono PCM16 WAV` before inference.
 - The Go client preserves the exact metadata fields above.
 - FastAPI form fields must be declared with `Form(...)` when sent alongside file uploads.
@@ -350,7 +360,7 @@ This is intentionally aligned with the planned WebSocket event model so the chun
 
 ### Current Go-side WebSocket transport notes
 
-The Go live path now also has an initial WebSocket transport implementation under `internal/live/`:
+The Go live path now also has an initial WebSocket transport implementation under `internal/live/`, and this is now the default `transcribe live` transport:
 
 - `WSLiveClient` handles connect/start/audio/flush/stop plus inbound JSON messages
 - `SendAudioFrames(...)` pushes replay PCM16 chunks over the WS transport

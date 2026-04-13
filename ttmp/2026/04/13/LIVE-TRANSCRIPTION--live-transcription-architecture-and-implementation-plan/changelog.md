@@ -205,3 +205,17 @@ Step 16: fixed WS timestamp anchoring so buffered decoder spans use incoming aud
 - /home/manuel/code/wesen/2026-04-13--transcription-go/out-live-ws-clip-000-015-fix/transcript.db — Corrected short WS smoke validation with end time near 15s
 - /home/manuel/code/wesen/2026-04-13--transcription-go/out-live-ws-clip-000-120-fix/live-summary.json — Corrected 120s WS metrics used for comparison against batch and HTTP chunk-live
 - /home/manuel/code/wesen/2026-04-13--transcription-go/out-live-ws-clip-000-120-fix/transcript.db — Corrected 120s WS transcript DB used for comparison evidence
+
+
+## 2026-04-13
+
+Step 17: made WebSocket the default `transcribe live` transport, documented chunk mode as a fallback/debug path, added an operator playbook, and updated the ticket status/checklists to reflect WS-first adoption (commit 6cda633).
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-04-13--transcription-go/cmd/transcribe/live.go — CLI default transport now points to WS instead of chunk
+- /home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/runner.go — Runner fallback transport now defaults to WS
+- /home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/playbooks/01-live-transcription-operator-playbook.md — Practical tmux/run/poll/check operator playbook for the live system
+- /home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/reference/02-api-contracts.md — API contract doc now reflects WS as the default live transport and chunk as fallback/debug
+- /home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/index.md — Ticket overview now reflects the current WS-first status
+- /home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/tasks.md — Operational playbook task and deliverables checklist updated to match current reality

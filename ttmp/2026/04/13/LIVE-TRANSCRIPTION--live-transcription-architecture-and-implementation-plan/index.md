@@ -3,31 +3,34 @@ Title: Live transcription architecture and implementation plan
 Ticket: LIVE-TRANSCRIPTION
 Status: active
 Topics:
-  - go
-  - dagger
-  - asr
-  - streaming
-  - websocket
-  - transcription
-  - audio
+    - go
+    - dagger
+    - asr
+    - streaming
+    - websocket
+    - transcription
+    - audio
 DocType: index
 Intent: long-term
 Owners: []
 RelatedFiles:
-  - Path: ../../../../../cmd/transcribe/main.go
-    Note: Current batch CLI flow that live mode must preserve rather than replace
-  - Path: ../../../../../internal/server/dagger.go
-    Note: Current Dagger service and host tunnel lifecycle; foundation for live mode
-  - Path: ../../../../../internal/asr/client.go
-    Note: Current full-file request contract that needs new live-facing siblings
-  - Path: ../../../../../server/server.py
-    Note: Current FastAPI/Nemotron service; starting point for chunk and streaming APIs
+    - Path: cmd/transcribe/main.go
+      Note: Current batch CLI flow that live mode must preserve rather than replace
+    - Path: internal/asr/client.go
+      Note: Current full-file request contract that needs new live-facing siblings
+    - Path: internal/server/dagger.go
+      Note: Current Dagger service and host tunnel lifecycle; foundation for live mode
+    - Path: server/server.py
+      Note: Current FastAPI/Nemotron service; starting point for chunk and streaming APIs
+    - Path: ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/playbooks/01-live-transcription-operator-playbook.md
+      Note: Index now links to the operator playbook for the current WS-first operational stance
 ExternalSources: []
-Summary: "Research ticket for designing the correct live transcription solution: chunked near-live as an intermediate phase, and a session-oriented streaming API as the real production architecture."
+Summary: 'Research ticket for designing the correct live transcription solution: chunked near-live as an intermediate phase, and a session-oriented streaming API as the real production architecture.'
 LastUpdated: 2026-04-13T00:00:00Z
-WhatFor: "Orient engineers and track the design/implementation work required to add live transcription to the current Go+Dagger Nemotron system."
-WhenToUse: "Use when planning or implementing live/near-live transcription in this repository, or when onboarding engineers to the architecture and phased execution plan."
+WhatFor: Orient engineers and track the design/implementation work required to add live transcription to the current Go+Dagger Nemotron system.
+WhenToUse: Use when planning or implementing live/near-live transcription in this repository, or when onboarding engineers to the architecture and phased execution plan.
 ---
+
 
 # Live transcription architecture and implementation plan
 
@@ -35,12 +38,14 @@ WhenToUse: "Use when planning or implementing live/near-live transcription in th
 
 This ticket captures the design and implementation plan for adding live transcription to the current `transcription-go` repository. The current system already provides the key foundation — a warm, Dagger-managed ASR service and a Go-owned output pipeline — but it is still batch-oriented. This ticket explains the current architecture, the missing pieces for live mode, and the recommended path to get from the current batch system to a production-ready streaming system.
 
-The primary recommendation is deliberate: implement a chunked near-live path first to prove behavior and latency, but treat a session-oriented streaming API over WebSocket as the actual long-term production solution.
+The primary recommendation is deliberate: implement a chunked near-live path first to prove behavior and latency, but treat a session-oriented streaming API over WebSocket as the actual long-term production solution. At this point in the ticket, that recommendation has effectively become the operational default: WebSocket is now the primary live path, while chunk mode is retained as a fallback/debug comparison path.
 
 ## Key Links
 
 - Design doc: [design-doc/01-live-transcription-architecture-design-and-implementation-guide.md](./design-doc/01-live-transcription-architecture-design-and-implementation-guide.md)
+- API contracts: [reference/02-api-contracts.md](./reference/02-api-contracts.md)
 - Diary: [reference/01-investigation-diary.md](./reference/01-investigation-diary.md)
+- Operator playbook: [playbooks/01-live-transcription-operator-playbook.md](./playbooks/01-live-transcription-operator-playbook.md)
 - Tasks: [tasks.md](./tasks.md)
 - Changelog: [changelog.md](./changelog.md)
 
@@ -54,12 +59,21 @@ What has been done:
 - primary design doc written
 - architecture mapped against current repository files
 - phased implementation strategy defined
+- HTTP chunk near-live path implemented and validated
+- WebSocket server/client transport implemented end-to-end
+- WS timestamp anchoring fixed for overlapped replay chunks
+- operator playbook added for tmux-driven live runs
+
+Current live-mode stance:
+
+- **primary live transport:** `ws`
+- **fallback/debug transport:** `chunk`
 
 What remains:
 
-- validate docmgr doctor cleanly
-- upload bundle to reMarkable
-- optionally expand with API-contract or playbook subdocs if implementation begins soon
+- optional Phase 4 hardening such as richer structured logging, backpressure policy, and reconnect/resume semantics
+- larger WS validation runs when needed
+- optional playbook/report expansion if operational needs grow
 
 ## Main conclusion
 

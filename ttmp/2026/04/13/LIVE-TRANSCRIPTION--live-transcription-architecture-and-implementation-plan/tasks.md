@@ -403,7 +403,7 @@
     - `internal/live/wsclient.go`
     - protocol docs
 
-- [ ] 4.5 Add operational playbook
+- [x] 4.5 Add operational playbook
   - Start/stop/debug live service
   - Replay test procedure
   - Latency diagnosis checklist
@@ -432,10 +432,10 @@
 
 ## Deliverables checklist
 
-- [ ] Detailed API contract doc for chunk + WebSocket modes
-- [ ] Near-live chunk mode implemented and validated
-- [ ] Transcript accumulator with explicit partial/final semantics
-- [ ] Streaming WebSocket transport implemented end-to-end
-- [ ] Replay-based test harness for deterministic validation
-- [ ] Operational playbook and latency/quality validation notes
-- [ ] Ticket docs updated with findings after each phase
+- [x] Detailed API contract doc for chunk + WebSocket modes
+- [x] Near-live chunk mode implemented and validated
+- [x] Transcript accumulator with explicit partial/final semantics
+- [x] Streaming WebSocket transport implemented end-to-end
+- [x] Replay-based test harness for deterministic validation
+- [x] Operational playbook and latency/quality validation notes
+- [x] Ticket docs updated with findings after each phase

@@ -21,6 +21,7 @@ RelatedFiles:
         Step 5 replay-oriented live CLI flags and runner wiring (commit b5aadd7617d06c596af6d165db58d94e7f26754d)
         Step 7 output-dir support for live replay (commit 0fc41bf9f2a2664eadbaaa1aed66e6a8f30ffa53)
         Step 15 live CLI transport selection flag
+        Step 17 WS is now the default live transport
     - Path: cmd/transcribe/main.go
       Note: Batch CLI flow inspected during live-architecture mapping
     - Path: cmd/transcribe/root.go
@@ -59,6 +60,7 @@ RelatedFiles:
         Step 5 runnable live chunk loop over replay input (commit b5aadd7617d06c596af6d165db58d94e7f26754d)
         Step 13 current chunk replay path now feeds TranscriptEvent values
         Step 15 transport-aware live runner for chunk and ws modes
+        Step 17 runner fallback transport now defaults to WS
     - Path: internal/live/sinks.go
       Note: Step 7 live sink construction from requested formats (commit 0fc41bf9f2a2664eadbaaa1aed66e6a8f30ffa53)
     - Path: internal/live/source.go
@@ -118,6 +120,8 @@ RelatedFiles:
         Current full-file chunking implementation inspected for service-boundary refactoring
         Step 3 chunk API and Form-based multipart contract (commit d14a887adafe235d1a6ebbd4e519f8e479252cbd)
         Step 14 FastAPI WebSocket endpoint for session-oriented live transcription
+    - Path: ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/playbooks/01-live-transcription-operator-playbook.md
+      Note: Step 17 operator playbook for WS-first live runs
     - Path: ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/01-compare_transcript_dbs.py
       Note: Step 10 partial live-vs-reference comparison helper
     - Path: ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/02-extract_wav_segment.py
@@ -136,6 +140,7 @@ LastUpdated: 2026-04-13T00:00:00Z
 WhatFor: Record the design investigation so future engineers can understand how the recommendation was derived.
 WhenToUse: Use when continuing or reviewing the live transcription design work.
 ---
+
 
 
 
@@ -2094,3 +2099,95 @@ python3 ./ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-an
   - delta vs batch: `-5`
   - earlier HTTP chunk-live words: `302`
   - delta vs earlier HTTP chunk-live: `+16`
+
+
+## Step 17: Make WS the default live transport and add an operator playbook
+
+After the corrected 120-second WS validation came back at `318` words vs batch `323` (`-5`), the practical question was no longer “can WS work?” but “should WS now be treated as the default live path?” I took the conservative adoption step: I changed the default `transcribe live` transport from `chunk` to `ws`, documented chunk mode as a fallback/debug comparison path, and added a small operator playbook so future runs can be started and monitored consistently in tmux.
+
+This step intentionally does not delete chunk mode. The chunk path is still useful as a fallback and as a comparison baseline, but it is no longer the recommended default. Operationally, live transcription in this repository should now be understood as “WS first, chunk only when you explicitly need it.”
+
+### Prompt Context
+
+**User prompt (verbatim):** "skip 1, do 2,3,4. Commit at appropriate intervals."
+
+**Assistant interpretation:** Skip the suggested full-length WS replay, and instead do the next adoption steps: record the current state in the ticket, make WS the default live transport, add an operator playbook, and preserve the work in focused commits.
+
+**Inferred user intent:** Treat the current WS implementation as good enough for default use, stop deferring adoption behind more long runs, and make the repository/documentation reflect that status.
+
+**Commit (code):** 6cda633 — "Make WebSocket the default live transport"
+
+### What I did
+- Changed the default live transport from `chunk` to `ws` in:
+  - `cmd/transcribe/live.go`
+  - `internal/live/runner.go`
+- Updated CLI help text so `chunk` is described as a debug/fallback transport.
+- Added a practical operator playbook:
+  - `ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/playbooks/01-live-transcription-operator-playbook.md`
+- Updated ticket docs to reflect the new operational stance:
+  - `index.md`
+  - `reference/02-api-contracts.md`
+  - `tasks.md`
+- Marked the operational playbook task complete and updated the deliverables checklist to reflect the current state of the ticket.
+- Re-ran:
+
+```bash
+cd /home/manuel/code/wesen/2026-04-13--transcription-go
+go test ./... -count=1
+```
+
+### Why
+- The corrected WS path is now working end-to-end, timestamp-correct, and closer to batch than the old HTTP chunk-live path on the same 120-second clip.
+- The repository should reflect the operational reality instead of leaving WS as a hidden/secondary path.
+- A playbook is the smallest useful step toward making the current live path runnable and understandable by someone who did not build it.
+
+### What worked
+- The code change to flip the default transport was tiny and low-risk.
+- The current docs/ticket state was already strong enough that a focused playbook could mostly consolidate existing operational knowledge rather than inventing new process.
+- The full Go test suite still passed after the default switch.
+
+### What didn't work
+- N/A
+
+### What I learned
+- Once a new path is good enough, delaying adoption can create more confusion than safety. The repository had already crossed that threshold for WS.
+- The most useful adoption docs are not grand architecture essays; they are concrete run/poll/check/compare instructions that match how we actually work in tmux.
+
+### What was tricky to build
+- The main subtlety was status framing. I wanted to make WS the default without pretending chunk mode is worthless. The resulting stance is explicit: WS is primary, chunk is retained as debug/fallback and as a comparison baseline.
+
+### What warrants a second pair of eyes
+- Whether the current playbook has the right level of detail for future operators, or whether it should later be split into “quick runbook” vs “deep debugging guide”
+- Whether the deliverables checklist should now be considered effectively complete for the current ticket scope, or whether Phase 4 hardening items should still be emphasized more heavily
+
+### What should be done in the future
+- Use WS as the normal live path going forward
+- Only use chunk transport when you intentionally want fallback/debug comparison behavior
+- Add more hardening only if it becomes operationally necessary rather than preemptively
+
+### Code review instructions
+- Start with:
+  - `/home/manuel/code/wesen/2026-04-13--transcription-go/cmd/transcribe/live.go`
+  - `/home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/runner.go`
+  - `/home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/playbooks/01-live-transcription-operator-playbook.md`
+  - `/home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/reference/02-api-contracts.md`
+  - `/home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/index.md`
+  - `/home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/tasks.md`
+- Validate with:
+
+```bash
+cd /home/manuel/code/wesen/2026-04-13--transcription-go
+go test ./... -count=1
+
+go run ./cmd/transcribe live --help
+```
+
+### Technical details
+- New operational stance:
+  - primary live transport: `ws`
+  - fallback/debug transport: `chunk`
+- New playbook:
+  - `playbooks/01-live-transcription-operator-playbook.md`
+- Task updates:
+  - `4.5` checked off
+  - deliverables checklist updated to reflect current implementation state
