@@ -176,3 +176,18 @@ Step 14: added the first server-side WebSocket/session scaffold with a live sess
 - /home/manuel/code/wesen/2026-04-13--transcription-go/server/live_decoder.py — Buffered per-session decoder scaffold used by the initial WS implementation
 - /home/manuel/code/wesen/2026-04-13--transcription-go/server/server.py — FastAPI now exposes `WS /transcribe/stream` beside the existing batch/chunk endpoints
 - /home/manuel/code/wesen/2026-04-13--transcription-go/server/live_sessions_test.py — Python tests for decoder/session invariants without loading the ASR model
+
+
+## 2026-04-13
+
+Step 15: added the Go WebSocket live transport, including client connect/start/audio/flush/stop handling, sender/receiver loops, a transport-aware live runner, replay PCM16 support, a lightweight WS integration test, and a real 15s replay-driven WS smoke validation run (commit cd945df).
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/wsclient.go — Go WebSocket client for the session-oriented live API
+- /home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/stream_sender.go — Replay PCM16 sender loop with per-chunk flush/finalization pacing
+- /home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/stream_receiver.go — WS message receiver that converts server events into transcript events
+- /home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/runner.go — Live runner now supports both chunk and WS transports
+- /home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/replay_source.go — Replay source now exposes raw PCM16 bytes for the WS transport
+- /home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/wsclient_test.go — Lightweight Go WS integration test
+- /home/manuel/code/wesen/2026-04-13--transcription-go/out-live-ws-clip-000-015/live-summary.json — Runtime evidence from a successful 15-second replay-driven WS smoke run

@@ -307,26 +307,26 @@
 
 ### 3C. Go streaming client
 
-- [ ] 3.7 Add WebSocket live client
+- [x] 3.7 Add WebSocket live client
   - Connect/disconnect lifecycle
   - Send control/audio messages
   - Receive result events
   - Files:
     - `internal/live/wsclient.go`
 
-- [ ] 3.8 Add audio-frame sender loop
+- [x] 3.8 Add audio-frame sender loop
   - Push audio frames at real-time or replay pace
   - Include timestamps/sequence numbers
   - Files:
     - `internal/live/stream_sender.go`
 
-- [ ] 3.9 Add result-event receiver loop
+- [x] 3.9 Add result-event receiver loop
   - Decode partial/final events
   - Feed accumulator
   - Files:
     - `internal/live/stream_receiver.go`
 
-- [ ] 3.10 Make live runner transport-agnostic
+- [x] 3.10 Make live runner transport-agnostic
   - Support both:
     - chunk transport
     - WebSocket transport
@@ -335,7 +335,7 @@
 
 ### 3D. Phase 3 validation
 
-- [ ] 3.11 Add WebSocket integration tests
+- [x] 3.11 Add WebSocket integration tests
   - Start session
   - Send sample frames
   - Observe partial/final events
@@ -344,12 +344,15 @@
     - `internal/live/wsclient_test.go`
     - Python-side tests if added
 
-- [ ] 3.12 Add replay harness for streaming mode
+- [x] 3.12 Add replay harness for streaming mode
   - Feed prerecorded chunks/frames as if live
   - Compare resulting transcript to batch baseline
   - Files:
     - `internal/live/replay_source.go`
     - test harness scripts
+  - Current evidence:
+    - 15s tmux WS smoke replay completed with persisted artifacts under `out-live-ws-clip-000-015/`
+    - `live-summary.json`: `chunks_processed=4`, `committed_words=24`, `effective_audio_seconds=15.0`, `average_server_processing_ms=820`, `average_end_to_end_ms=2843.75`
 
 - [ ] 3.13 Verify word-level timestamp quality in streaming mode
   - Confirm final emitted words retain reliable `start` and `end`

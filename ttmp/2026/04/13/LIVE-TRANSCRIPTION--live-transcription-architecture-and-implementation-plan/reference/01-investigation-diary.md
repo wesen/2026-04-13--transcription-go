@@ -20,6 +20,7 @@ RelatedFiles:
         Step 2 live command scaffold (commit 23f88e5d123a9482b0ca39519876eded5788f119)
         Step 5 replay-oriented live CLI flags and runner wiring (commit b5aadd7617d06c596af6d165db58d94e7f26754d)
         Step 7 output-dir support for live replay (commit 0fc41bf9f2a2664eadbaaa1aed66e6a8f30ffa53)
+        Step 15 live CLI transport selection flag
     - Path: cmd/transcribe/main.go
       Note: Batch CLI flow inspected during live-architecture mapping
     - Path: cmd/transcribe/root.go
@@ -47,7 +48,9 @@ RelatedFiles:
     - Path: internal/live/metrics_test.go
       Note: Step 8 metrics summary tests (commit 6560072a7d7c567ba3e0408d9a0a99494a21eeaf)
     - Path: internal/live/replay_source.go
-      Note: Step 5 WAV-backed simulated live source (commit b5aadd7617d06c596af6d165db58d94e7f26754d)
+      Note: |-
+        Step 5 WAV-backed simulated live source (commit b5aadd7617d06c596af6d165db58d94e7f26754d)
+        Step 15 replay source now exposes PCM16 bytes for WS transport
     - Path: internal/live/replay_source_test.go
       Note: Step 5 replay-source chunking tests (commit b5aadd7617d06c596af6d165db58d94e7f26754d)
     - Path: internal/live/runner.go
@@ -55,6 +58,7 @@ RelatedFiles:
         Step 2 live runner scaffold (commit 23f88e5d123a9482b0ca39519876eded5788f119)
         Step 5 runnable live chunk loop over replay input (commit b5aadd7617d06c596af6d165db58d94e7f26754d)
         Step 13 current chunk replay path now feeds TranscriptEvent values
+        Step 15 transport-aware live runner for chunk and ws modes
     - Path: internal/live/sinks.go
       Note: Step 7 live sink construction from requested formats (commit 0fc41bf9f2a2664eadbaaa1aed66e6a8f30ffa53)
     - Path: internal/live/source.go
@@ -63,12 +67,20 @@ RelatedFiles:
       Note: |-
         Step 7 rolling SQLite artifact sink (commit 0fc41bf9f2a2664eadbaaa1aed66e6a8f30ffa53)
         Step 13 sqlite sink consumes committed state only
+    - Path: internal/live/stream_receiver.go
+      Note: Step 15 WS result receiver loop converting server events into transcript events
+    - Path: internal/live/stream_sender.go
+      Note: Step 15 WS audio sender loop with per-chunk flush/finalization pacing
     - Path: internal/live/subtitle_sink.go
       Note: |-
         Step 7 rolling subtitle/text artifact sink (commit 0fc41bf9f2a2664eadbaaa1aed66e6a8f30ffa53)
         Step 13 subtitle/text sink consumes committed state only
     - Path: internal/live/types.go
       Note: Step 13 transport-neutral transcript event/state definitions for future WS work
+    - Path: internal/live/wsclient.go
+      Note: Step 15 Go WebSocket client implementation for the live API
+    - Path: internal/live/wsclient_test.go
+      Note: Step 15 lightweight Go WS integration test
     - Path: internal/server/dagger.go
       Note: |-
         Warm Dagger service boundary inspected as live-mode foundation
@@ -79,6 +91,8 @@ RelatedFiles:
       Note: Step 9 real persisted-output validation artifact inspected during live replay
     - Path: out-live-e2e/transcript.srt
       Note: Step 9 real persisted-output validation artifact inspected during live replay
+    - Path: out-live-ws-clip-000-015/live-summary.json
+      Note: Step 15 successful 15s replay-driven WS smoke run metrics
     - Path: server/live_decoder.py
       Note: Step 14 buffered per-session decoder used by the initial WS transport
     - Path: server/live_sessions.py
@@ -110,6 +124,7 @@ LastUpdated: 2026-04-13T00:00:00Z
 WhatFor: Record the design investigation so future engineers can understand how the recommendation was derived.
 WhenToUse: Use when continuing or reviewing the live transcription design work.
 ---
+
 
 
 
@@ -1838,3 +1853,118 @@ go test ./... -count=1
   - `channels=1`
   - `format="pcm_s16le"`
   - buffered preview/final decode inside each session rather than true model-state streaming
+
+
+## Step 15: Add the Go WebSocket client path and make the live runner transport-aware
+
+With the server-side WebSocket/session scaffold in place, the next step was to wire a corresponding Go client path rather than leaving the WS API unused. I added a Go WebSocket client, explicit sender/receiver loops, and transport selection in the live runner so the replay source can now drive either the old HTTP chunk transport or the new session-oriented WebSocket transport.
+
+This first Go WS path is intentionally practical rather than idealized. It sends replay PCM16 bytes over the real WS protocol, but it currently flushes once per replay chunk and waits for that chunk’s finalization before sending the next one. That keeps the sequencing and metric attribution simple while the server-side decoder is still buffered under the hood.
+
+### Prompt Context
+
+**User prompt (verbatim):** "go ahead"
+
+**Assistant interpretation:** Continue with the next planned Go-side streaming slice: add the WebSocket client, sender/receiver loops, and wire the live runner so it can use the new server-side WS transport.
+
+**Inferred user intent:** Keep progressing along the planned streaming architecture so the existing server-side WS scaffold becomes usable end-to-end from the Go CLI.
+
+**Commit (code):** cd945df — "Add Go WebSocket live transport and transport-aware runner"
+
+### What I did
+- Added `internal/live/wsclient.go`:
+  - connect/disconnect lifecycle,
+  - `start`, `audio`, `flush`, `stop`,
+  - WS JSON message decoding.
+- Added `internal/live/stream_sender.go`:
+  - sends replay PCM16 chunks over WS,
+  - flushes after each replay chunk for the current implementation,
+  - waits for an ack signal before advancing to the next chunk.
+- Added `internal/live/stream_receiver.go`:
+  - converts WS server messages into transport-neutral `TranscriptEvent` values,
+  - surfaces terminal `stopped` information.
+- Updated `internal/live/replay_source.go` so each replay chunk now carries raw `PCM16` bytes in addition to a temporary WAV file path.
+- Updated `internal/live/types.go` so `TranscriptEvent` also carries `ProcessingMS`.
+- Refactored `internal/live/runner.go` to support:
+  - `chunk` transport,
+  - `ws` transport,
+  - shared sink/state update flow,
+  - shared metrics/output handling.
+- Updated `cmd/transcribe/live.go` to add:
+  - `--transport chunk|ws`
+- Added `internal/live/wsclient_test.go` as a lightweight Go WebSocket integration test using `httptest` + Gorilla WebSocket.
+- Added the Gorilla WebSocket dependency in `go.mod` / `go.sum`.
+
+### Why
+- The server-side WS protocol is only valuable if the Go CLI can actually speak it.
+- Making the runner transport-aware now lets chunk and WS modes coexist cleanly while the system transitions.
+- A chunk-paced WS sender is a good intermediate step: it exercises the real transport/session semantics without forcing premature complexity into sequencing/finalization logic.
+
+### What worked
+- The Go live package tests and the full repo Go test suite passed after the refactor.
+- The WS client/receiver integration test proved the basic protocol flow in-process.
+- A real 15-second replay-driven WS smoke run worked through the Dagger-hosted Python service and produced persisted output artifacts.
+
+### What didn't work
+- The first WS smoke run exposed an ordering problem: the sender could push the next chunk far enough ahead that a later `partial` arrived before the previous chunk’s `final_words`, which produced an accumulator sequence error.
+- I fixed this by making the first WS sender wait for a per-chunk finalization ack before moving on to the next replay chunk.
+
+### What I learned
+- The first stable WS client path does not need to be fully continuous to be useful; a chunk-paced WS sender is already enough to validate protocol correctness and runner integration.
+- The transport-agnostic runner boundary is now much clearer: replay source → transport → transcript events → accumulator → sinks.
+- The WS path and chunk path can now share most of the post-transport logic, which is exactly the architecture we wanted.
+
+### What was tricky to build
+- The main subtlety was sequencing. The server emits both `partial` and `final_words`, and the Go accumulator now enforces meaningful ordering. If the sender outruns the rate at which finalization events are applied, the current simple sequence model gets confused. The initial fix is deliberately conservative: flush every replay chunk and block until its final event is observed.
+- Another subtle point was keeping metrics comparable across transports. The runner now associates final WS events with the corresponding replay chunks via a small finalized-chunk queue so end-to-end latency and server processing time can still be recorded in a familiar way.
+
+### What warrants a second pair of eyes
+- Whether the current per-chunk WS flush+ack strategy is the right temporary stepping stone before moving to more continuous WS streaming
+- Whether the current accumulator sequence semantics will need a broader revision once multiple partial revisions per logical chunk become more common
+- Whether the current replay metrics are still the right shape for comparing chunk vs WS transport behavior
+
+### What should be done in the future
+- Use the new WS path for larger replay-based validation runs
+- Compare WS-mode output quality and latency against the existing chunk transport on the same clipped inputs
+- Later relax the strict per-chunk flush/ack model as the server-side decoder becomes more truly incremental
+
+### Code review instructions
+- Start with:
+  - `/home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/wsclient.go`
+  - `/home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/stream_sender.go`
+  - `/home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/stream_receiver.go`
+  - `/home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/runner.go`
+  - `/home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/replay_source.go`
+  - `/home/manuel/code/wesen/2026-04-13--transcription-go/cmd/transcribe/live.go`
+  - `/home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/wsclient_test.go`
+- Validate with:
+
+```bash
+cd /home/manuel/code/wesen/2026-04-13--transcription-go
+go test ./internal/live/... -count=1
+go test ./... -count=1
+
+# Optional runtime smoke test
+python3 ./ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/02-extract_wav_segment.py   --input /home/manuel/code/wesen/2026-04-09--screencast-studio/recordings/rabbit-hole-2026-04-10--2/audio-mix.wav   --output /tmp/transcription-live-clip-000-015.wav   --start 0   --duration 15
+
+go run ./cmd/transcribe live   -i /tmp/transcription-live-clip-000-015.wav   -o ./out-live-ws-clip-000-015   --transport ws   --live-format console,db,txt   --chunk-duration 5   --overlap-seconds 0.5   --replay-speed 0
+```
+
+### Technical details
+- New Go WS transport files:
+  - `internal/live/wsclient.go`
+  - `internal/live/stream_sender.go`
+  - `internal/live/stream_receiver.go`
+- Runner/CLI changes:
+  - `internal/live/runner.go`
+  - `cmd/transcribe/live.go`
+- WS smoke-run evidence (`out-live-ws-clip-000-015/live-summary.json`):
+  - `chunks_processed=4`
+  - `committed_words=24`
+  - `effective_audio_seconds=15.0`
+  - `elapsed_seconds=6.442`
+  - `audio_seconds_per_wall_second=2.328`
+  - `average_server_processing_ms=820`
+  - `max_server_processing_ms=1020`
+  - `average_end_to_end_ms=2843.75`
+  - `max_end_to_end_ms=3734`

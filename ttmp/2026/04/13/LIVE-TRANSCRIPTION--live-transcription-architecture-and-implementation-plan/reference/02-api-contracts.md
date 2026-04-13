@@ -28,6 +28,14 @@ RelatedFiles:
       Note: Summary artifact is now refreshed incrementally during replay
     - Path: internal/live/sinks.go
       Note: Phase 1 live runner can now persist committed transcript outputs to console/text/subtitle/sqlite artifacts
+    - Path: internal/live/stream_receiver.go
+      Note: Current Go WS receiver semantics reflected in the API contract
+    - Path: internal/live/stream_sender.go
+      Note: Current Go WS sender pacing/flush semantics reflected in the API contract
+    - Path: internal/live/wsclient.go
+      Note: Current Go WS event handling reflected in the API contract
+    - Path: out-live-ws-clip-000-015/live-summary.json
+      Note: WS smoke-run evidence referenced by the API contract
     - Path: server/live_decoder.py
       Note: Current buffered WS decoder behavior and constraints reflected in the API contract
     - Path: server/live_sessions.py
@@ -46,6 +54,7 @@ LastUpdated: 2026-04-13T00:00:00Z
 WhatFor: Give implementers a concrete request/response schema reference for Phase 1 near-live mode and the future session-oriented streaming transport.
 WhenToUse: Use when implementing or reviewing client/server protocol changes for live transcription.
 ---
+
 
 
 
@@ -331,6 +340,52 @@ The Go live path now has an explicit transport-neutral transcript-state model un
 - after finalization, sinks derive durable artifacts from committed words only; console output may additionally surface pending preview text
 
 This is intentionally aligned with the planned WebSocket event model so the chunk-based proving path and the future streaming path can share the same accumulator semantics.
+
+### Current Go-side WebSocket transport notes
+
+The Go live path now also has an initial WebSocket transport implementation under `internal/live/`:
+
+- `WSLiveClient` handles connect/start/audio/flush/stop plus inbound JSON messages
+- `SendAudioFrames(...)` pushes replay PCM16 chunks over the WS transport
+- `ReceiveResultEvents(...)` converts WS server messages into `TranscriptEvent` values
+- `LiveRunner` now supports both `chunk` and `ws` transports via `--transport`
+
+Current behavior/constraints:
+
+- replay input chunks now carry both `WAVPath` and raw `PCM16` bytes so they can feed either transport
+- the initial WS sender flushes after each replay chunk and waits for the corresponding finalization before advancing to the next chunk
+- partial WS events update pending preview state, but durable artifacts still only use committed/final words
+- the current WS path is transport-correct and session-oriented, but it intentionally preserves chunk-level pacing/finalization to keep validation and attribution simple while the decoder remains buffered server-side
+
+### Current WS smoke-run evidence
+
+A short replay-driven WS smoke run completed successfully in tmux using:
+
+```bash
+go run ./cmd/transcribe live \
+  -i /tmp/transcription-live-clip-000-015.wav \
+  -o ./out-live-ws-clip-000-015 \
+  --transport ws \
+  --live-format console,db,txt \
+  --chunk-duration 5 \
+  --overlap-seconds 0.5 \
+  --replay-speed 0
+```
+
+Observed artifacts/results:
+
+- output dir: `out-live-ws-clip-000-015/`
+- artifacts: `transcript.db`, `transcript.txt`, `live-summary.json`
+- `live-summary.json`:
+  - `chunks_processed=4`
+  - `committed_words=24`
+  - `effective_audio_seconds=15.0`
+  - `average_server_processing_ms=820`
+  - `average_end_to_end_ms=2843.75`
+- runtime evidence included:
+  - `Preview: Welcome back to the Go Golems lab.`
+  - `Committed +7 words: Welcome back to the Go Golems lab.`
+  - `Processed live chunk transport=ws seq=0 ...`
 
 ---
 
