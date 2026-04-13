@@ -72,6 +72,8 @@ RelatedFiles:
       Note: |-
         Current full-file chunking implementation inspected for service-boundary refactoring
         Step 3 chunk API and Form-based multipart contract (commit d14a887adafe235d1a6ebbd4e519f8e479252cbd)
+    - Path: ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/compare_transcript_dbs.py
+      Note: Step 10 partial live-vs-reference comparison helper
     - Path: ttmp/cmd/transcribe/main.go
       Note: Current batch CLI flow inspected while designing live-mode coexistence
     - Path: ttmp/internal/asr/client.go
@@ -86,6 +88,7 @@ LastUpdated: 2026-04-13T00:00:00Z
 WhatFor: Record the design investigation so future engineers can understand how the recommendation was derived.
 WhenToUse: Use when continuing or reviewing the live transcription design work.
 ---
+
 
 
 
@@ -1227,3 +1230,113 @@ Observed files during replay:
 Follow-up code change in this step:
 
 - `internal/live/runner.go` now writes `live-summary.json` after each processed chunk.
+
+## Step 10: Add a transcript-database comparison script and run the first partial live-vs-reference check
+
+Now that the live replay path can persist a rolling `transcript.db`, the next practical need was a repeatable way to compare it with the reference transcript database from the earlier batch pipeline work. Rather than doing that by hand in `sqlite3`, I added a small comparison script to the ticket workspace and used it against the in-progress `out-live-e2e/transcript.db`.
+
+Because the live replay was still running, this first comparison is intentionally partial. That is still useful: it verifies that the live output database is structurally comparable, confirms the script works, and gives a grounded snapshot of how far through the source audio the replay had progressed at inspection time.
+
+### Prompt Context
+
+**User prompt (verbatim):** (same as Step 2)
+
+**Assistant interpretation:** Continue making the live-transcription work reviewable and measurable, not just runnable.
+
+**Inferred user intent:** Have tooling around the live pipeline that makes it easier to inspect progress and compare outputs against known references.
+
+### What I did
+
+- Added a ticket-local comparison script:
+  - `ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/compare_transcript_dbs.py`
+- The script:
+  - opens both SQLite transcript DBs,
+  - reports word/filler/chunk counts,
+  - reports time coverage,
+  - reports first/last words,
+  - optionally attaches `live-summary.json` if present.
+- Ran it against:
+  - live DB: `out-live-e2e/transcript.db`
+  - reference DB: `/home/manuel/code/wesen/2026-04-09--screencast-studio/ttmp/2026/04/13/TRANSCRIPT-PIPELINE--setting-up-an-analysis-pipeline-for-transcripts/sources/audio_transcript.db`
+
+### Why
+
+A comparison script is the fastest way to turn the current live run into concrete evidence rather than anecdotal observation. It also creates a reusable tool for the next full near-live vs batch comparison once the replay completes.
+
+### What worked
+
+- The script ran successfully against both databases.
+- The in-progress live replay DB was valid and queryable.
+- The partial comparison showed that the live run had progressed meaningfully through the source audio:
+
+```json
+{
+  "live": {
+    "word_count": 1152,
+    "chunk_count": 106,
+    "max_end": 509.12
+  },
+  "reference": {
+    "word_count": 4248,
+    "chunk_count": 196,
+    "max_end": 1656.0
+  }
+}
+```
+
+This is exactly what we would expect from a replay that is still in progress rather than complete.
+
+### What didn't work
+
+- My first `chmod`/execution attempt used the wrong relative path after writing the script, so the shell could not find it.
+- The follow-up locate-and-run command fixed that immediately.
+
+### What I learned
+
+- Even a very small comparison script is enough to turn a long-running replay into something quantitatively inspectable mid-run.
+- The current live DB schema is compatible enough with the reference DB to support direct structural comparison already.
+
+### What was tricky to build
+
+The main subtlety was making sure the script’s output is useful even for a partial live run. Reporting raw deltas alone would be misleading mid-run, so the script also reports effective coverage (`max_end`) and first/last words to give context about how far the replay has progressed.
+
+### What warrants a second pair of eyes
+
+- Whether the comparison script should later report more transcript-quality signals, such as punctuation differences, average word durations, or chunk density
+- Whether the eventual full comparison should be emitted as JSON only, Markdown only, or both
+
+### What should be done in the future
+
+- Re-run the script when the live replay completes and include `live-summary.json`
+- Add a follow-up note in the ticket with the completed live-vs-reference comparison
+- Optionally expand the script into a small playbook or report generator once the final comparison format is clearer
+
+### Code review instructions
+
+Start here:
+
+- `/home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/compare_transcript_dbs.py`
+
+Validation command:
+
+```bash
+cd /home/manuel/code/wesen/2026-04-13--transcription-go
+python3 ./ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/compare_transcript_dbs.py \
+  --live-db out-live-e2e/transcript.db \
+  --reference-db /home/manuel/code/wesen/2026-04-09--screencast-studio/ttmp/2026/04/13/TRANSCRIPT-PIPELINE--setting-up-an-analysis-pipeline-for-transcripts/sources/audio_transcript.db
+```
+
+### Technical details
+
+Observed partial comparison snapshot:
+
+- live word count: `1152`
+- live chunk count: `106`
+- live coverage: `509.12s`
+- reference word count: `4248`
+- reference chunk count: `196`
+- reference coverage: `1656.0s`
+- delta word count: `-3096`
+- delta coverage: `-1146.88s`
+
+Interpretation: the live replay DB was valid and structurally comparable, but the run was still partial at the time of inspection.

@@ -119,3 +119,12 @@ Step 9: validated mid-run live artifacts in tmux (transcript.srt and transcript.
 - /home/manuel/code/wesen/2026-04-13--transcription-go/out-live-e2e/transcript.db — Observed rolling SQLite artifact during replay validation
 - /home/manuel/code/wesen/2026-04-13--transcription-go/out-live-e2e/transcript.srt — Observed rolling subtitle artifact during replay validation
 
+
+## 2026-04-13
+
+Step 10: added a ticket-local transcript DB comparison script and used it for the first partial live-vs-reference comparison against the in-progress out-live-e2e transcript.db.
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/compare_transcript_dbs.py — Reusable live-vs-reference SQLite comparison helper
+
