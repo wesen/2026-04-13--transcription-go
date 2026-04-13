@@ -101,6 +101,7 @@ func (r *LiveRunner) Run(ctx context.Context) error {
 	go func() { sourceErrCh <- source.Run(ctx, chunks) }()
 
 	started := time.Now()
+	metrics := NewMetricsCollector(started)
 	processedChunks := 0
 	for chunk := range chunks {
 		processedChunks++
@@ -131,6 +132,7 @@ func (r *LiveRunner) Run(ctx context.Context) error {
 			}
 		}
 		latency := time.Since(chunk.EmittedAt).Round(time.Millisecond)
+		metrics.ObserveChunk(chunk, len(committed), resp.ProcessingMS, latency)
 		log.Printf(
 			"Processed live chunk seq=%d start=%.3fs duration=%.3fs server_words=%d committed_total=%d committed_added=%d processing_ms=%d end_to_end=%s",
 			chunk.Sequence,
@@ -149,7 +151,21 @@ func (r *LiveRunner) Run(ctx context.Context) error {
 	}
 
 	committed := r.Accumulator.CommittedWords()
-	log.Printf("Live replay complete: session=%s chunks_processed=%d committed_words=%d output_dir=%s elapsed=%s", sessionID, processedChunks, len(committed), r.Config.OutputDir, time.Since(started).Round(time.Second))
+	summary := metrics.Summary(sessionID)
+	if err := WriteMetricsSummary(r.Config.OutputDir, summary); err != nil {
+		return err
+	}
+	log.Printf(
+		"Live replay complete: session=%s chunks_processed=%d committed_words=%d output_dir=%s elapsed=%s avg_server_ms=%.1f avg_end_to_end_ms=%.1f audio_per_wall=%.2fx",
+		sessionID,
+		processedChunks,
+		len(committed),
+		r.Config.OutputDir,
+		time.Since(started).Round(time.Second),
+		summary.AverageServerProcessingMS,
+		summary.AverageEndToEndMS,
+		summary.AudioSecondsPerWallSecond,
+	)
 	return nil
 }
 
