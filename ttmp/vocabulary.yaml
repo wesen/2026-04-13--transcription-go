@@ -19,6 +19,8 @@ topics:
       description: NVIDIA NeMo toolkit for ASR
     - slug: transcription
       description: Audio to text transcription
+    - slug: streaming
+      description: Streaming protocols, incremental audio ingestion, and real-time transcript delivery
 docTypes:
     - slug: design-doc
       description: Structured rationale and architecture notes
