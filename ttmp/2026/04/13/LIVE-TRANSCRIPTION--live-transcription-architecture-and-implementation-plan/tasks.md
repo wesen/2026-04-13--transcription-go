@@ -102,17 +102,18 @@
   - Files:
     - `internal/live/source.go`
 
-- [ ] 1.8 Implement chunk-directory watcher source
-  - Watch a directory for newly written chunk WAV files
-  - Parse ordering from filenames or metadata
-  - Emit chunks in order
-  - Files:
-    - `internal/live/chunk_dir_source.go`
-
-- [ ] 1.9 Implement replay source for testing
-  - Feed prerecorded chunk fixtures or synthetic chunks through the live runner
+- [ ] 1.8 Implement WAV-backed replay source as the primary simulated live input
+  - Read a prerecorded WAV file and emit fixed-duration frames/chunks on a simulated timeline
+  - Support both real-time pacing and accelerated replay for tests
+  - Make this the main Phase 1 source because it maps naturally onto the future WebSocket sender loop
   - Files:
     - `internal/live/replay_source.go`
+
+- [ ] 1.9 Make chunk-directory ingestion optional/deferred
+  - Do not treat directory watching as the default near-live path
+  - Only add it later if an external recorder integration actually needs it
+  - Files:
+    - `internal/live/chunk_dir_source.go` (only if later justified)
 
 ### 1D. Client-side accumulation and rolling output
 
@@ -157,10 +158,11 @@
 
 - [ ] 1.15 Add `transcribe live` CLI command
   - Add flags for:
-    - `--chunk-dir`
+    - `--input` or another explicit replay WAV source flag
     - `--session-id`
     - `--overlap-seconds`
     - `--live-format`
+    - replay pacing controls (real-time vs accelerated)
   - Files:
     - `cmd/transcribe/main.go`
     - possibly `cmd/transcribe/live.go`
@@ -178,7 +180,8 @@
 ### 1F. Phase 1 validation
 
 - [ ] 1.17 Create replay-based validation fixtures
-  - Use prerecorded WAV/chunk sets for deterministic near-live tests
+  - Use prerecorded WAV inputs and deterministic frame/chunk slicing for simulated live tests
+  - Prefer a single WAV replay flow over directory-driven chunk fixtures
   - Files:
     - `ttmp/.../scripts/` or repo test fixtures dir
     - `internal/live/testdata/`

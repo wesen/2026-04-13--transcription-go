@@ -423,3 +423,87 @@ Important implementation details:
 - FastAPI multipart form fields are declared with `Form(...)`
 - word-level timestamps remain required in the live-facing chunk contract
 - the Go client now shares multipart upload logic between full-file and chunk requests
+
+## Step 4: Pivot the Phase 1 live source toward WAV replay instead of directory watching
+
+After the first near-live transport work landed, the next design choice was about the source model for Phase 1. The original task list included a chunk-directory watcher as the first live input source, but that now looks like the wrong default because the long-term destination is a WebSocket streaming transport, not a filesystem-driven integration.
+
+The user’s suggestion was the right simplification: use a prerecorded WAV as a simulated streaming source, emit timed frames/chunks from it, and make that replay source the main proving path. That keeps the implementation aligned with the eventual streaming sender loop and avoids building a source mode we may never actually use.
+
+### Prompt Context
+
+**User prompt (verbatim):** "i think we should just simulate with taking a wav and pretending its a streaming source, I don't think we'll actually use the chunk directory approach, since we will go to websocket ultimately"
+
+**Assistant interpretation:** Re-prioritize the Phase 1 source strategy so the primary near-live input is a replayed WAV file rather than a watched chunk directory.
+
+**Inferred user intent:** Avoid investing in an intermediate source abstraction that does not pull its weight, and keep the proving phase closely aligned with the eventual WebSocket streaming architecture.
+
+### What I did
+
+- Updated the ticket task list so that:
+  - WAV-backed replay becomes the primary simulated live source
+  - chunk-directory ingestion is explicitly deferred/optional
+  - live CLI planning now centers on replay input and pacing controls
+  - replay-based validation is framed around deterministic WAV slicing rather than directory fixtures
+
+### Why
+
+A WAV replay source exercises the parts of the system that actually matter for the long-term design:
+
+- timeline-aware chunk/frame emission,
+- pacing,
+- transport boundaries,
+- transcript accumulation,
+- output stability.
+
+A chunk-directory watcher mostly exercises filesystem coordination, which is not on the critical path for the eventual streaming architecture.
+
+### What worked
+
+- The task plan was easy to simplify without invalidating the work already done.
+- This decision makes the next implementation step clearer: build a replay source that can later feed either chunk HTTP uploads or WebSocket audio frames.
+
+### What didn't work
+
+- N/A as a code/build issue.
+- Conceptually, this exposed that the earlier task list still contained one source mode that was more “possible” than “strategically important”.
+
+### What I learned
+
+- The right proving source is the one that best approximates the final transport semantics, not necessarily the one that is easiest to sketch in isolation.
+- WAV replay is a better bridge to the WebSocket model because it naturally produces ordered, timestamped frames/chunks under pacing control.
+
+### What was tricky to build
+
+The tricky part here is architectural prioritization rather than implementation mechanics. Directory watching can look attractive because it is concrete and easy to reason about, but it risks pulling the design toward a file-ingestion mindset when the real target is session-oriented media streaming. The fix is to privilege the source model that matches the future sender loop.
+
+### What warrants a second pair of eyes
+
+- Whether the replay source should emit WAV-backed chunks first or PCM frames directly
+- Whether the first replay path should target the HTTP chunk API or whether it should immediately be shaped to resemble the future WebSocket sender abstraction
+- What pacing controls are most useful for development versus CI replay tests
+
+### What should be done in the future
+
+- Implement the WAV replay source next
+- Add CLI flags for replay input and pacing
+- Use the replay source as the main validation harness for both chunk mode and the later WebSocket transport
+
+### Code review instructions
+
+Review the updated tasks in:
+
+- `/home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/tasks.md`
+
+Confirm that the new priority order matches the architecture goal: simulated streaming from WAV first, transport-aligned abstractions second, directory watching only if later needed.
+
+### Technical details
+
+The task changes were:
+
+- old primary source:
+  - chunk-directory watcher
+- new primary source:
+  - WAV-backed replay source with pacing control
+- deferred source:
+  - chunk-directory ingestion, only if a real external integration later requires it

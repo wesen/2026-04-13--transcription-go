@@ -47,3 +47,13 @@ Step 3: added the near-live chunk transcription API, Go chunk client, contract t
 - /home/manuel/code/wesen/2026-04-13--transcription-go/server/server.py — Chunk endpoint and shared normalization/transcription helpers
 - /home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/reference/02-api-contracts.md — Documented implemented and planned protocols
 
+
+## 2026-04-13
+
+Step 4: re-prioritized Phase 1 to use a WAV-backed replay source as the main simulated live input, deferring chunk-directory ingestion unless a real integration later requires it.
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/reference/01-investigation-diary.md — Recorded the source-strategy pivot and rationale
+- /home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/tasks.md — Phase 1 source strategy updated to match the eventual WebSocket architecture
+
