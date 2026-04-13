@@ -68,3 +68,22 @@ Step 5: implemented a WAV-backed replay source, overlap-aware Phase 1 accumulato
 - /home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/replay_source.go — Simulated live replay source
 - /home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/runner.go — Live runner now uploads replayed chunks
 
+
+## 2026-04-13
+
+Step 6: fixed Python startup churn by caching pip install behind requirements.txt and aligning Lightning pins with NeMo, then successfully validated the live replay path in tmux through real /transcribe/chunk processing (commit 180dfdae073da2ba9469062b5ca0efcf45b7fbd4).
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-04-13--transcription-go/internal/server/dagger.go — Improved Dagger dependency-layer caching for iterative server work
+- /home/manuel/code/wesen/2026-04-13--transcription-go/server/requirements.txt — Aligned Python pins to reduce resolver backtracking
+
+
+## 2026-04-13
+
+Clarified in the diary why Python resolver backtracking appeared during live work: a latent dependency issue was exposed when server-side code edits invalidated the old Dagger install layer cache.
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/reference/01-investigation-diary.md — Added explicit explanation of the cache-vs-resolution behavior
+

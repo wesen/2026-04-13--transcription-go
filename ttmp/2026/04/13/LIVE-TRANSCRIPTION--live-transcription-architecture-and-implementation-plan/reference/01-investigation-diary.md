@@ -46,9 +46,13 @@ RelatedFiles:
     - Path: internal/live/source.go
       Note: Step 2 audio source contract scaffold (commit 23f88e5d123a9482b0ca39519876eded5788f119)
     - Path: internal/server/dagger.go
-      Note: Warm Dagger service boundary inspected as live-mode foundation
+      Note: |-
+        Warm Dagger service boundary inspected as live-mode foundation
+        Step 6 dependency-layer caching fix for iterative live validation (commit 180dfdae073da2ba9469062b5ca0efcf45b7fbd4)
     - Path: internal/server/helpers.go
       Note: Step 2 shared server startup/path helpers (commit 23f88e5d123a9482b0ca39519876eded5788f119)
+    - Path: server/requirements.txt
+      Note: Step 6 Python pin alignment to reduce resolver backtracking (commit 180dfdae073da2ba9469062b5ca0efcf45b7fbd4)
     - Path: server/server.py
       Note: |-
         Current full-file chunking implementation inspected for service-boundary refactoring
@@ -67,6 +71,7 @@ LastUpdated: 2026-04-13T00:00:00Z
 WhatFor: Record the design investigation so future engineers can understand how the recommendation was derived.
 WhenToUse: Use when continuing or reviewing the live transcription design work.
 ---
+
 
 
 
@@ -677,3 +682,173 @@ Current live-specific flags:
 - `--replay-speed`
 - `--session-id`
 - `--live-format`
+
+## Step 6: Fix Dagger/Python startup churn and validate the live replay path in tmux
+
+The next real issue showed up only once I tried to run the new live path against a real WAV in tmux. The first replay attempt did not fail in transcription logic; it got bogged down in a long `pip install -r requirements.txt` resolver cycle inside the Dagger container because the current graph made the Python dependency-install step depend on the whole server source directory, and the existing Lightning pin also appears to have been poorly aligned with NeMo’s own dependency range.
+
+This step therefore had two parts: first, improve the Dagger graph and requirements pins so server startup becomes practical again after code changes; second, rerun the real replay in tmux and confirm that the system gets through health-check, starts processing chunk uploads, and emits incremental transcript output with timing metrics.
+
+### Prompt Context
+
+**User prompt (verbatim):** (same as Step 2)
+
+**Assistant interpretation:** Keep advancing the implementation in practical, reviewable steps, and address real runtime blockers as they appear.
+
+**Inferred user intent:** Move beyond static code changes into actual usable live-transcription behavior, and fix operational problems instead of leaving them as hand-waved future work.
+
+**Commit (code):** 180dfdae073da2ba9469062b5ca0efcf45b7fbd4 — "Optimize ASR service dependency caching and pin Python deps"
+
+### What I did
+
+- Started a real live replay run in `tmux`:
+  - session: `live-replay-e2e`
+  - command shape:
+    - `go run ./cmd/transcribe live -i .../audio-mix.wav --chunk-duration 5 --overlap-seconds 0.5 --replay-speed 0`
+- Observed the first run spending a long time in `pip install -r requirements.txt` with resolver backtracking.
+- Killed the blocked session and investigated the Dagger build graph.
+- Updated `internal/server/dagger.go` so:
+  - the `pip install -r requirements.txt` layer depends on a minimal bootstrap directory containing only `requirements.txt`,
+  - the full mutable server source is mounted afterward.
+- Updated `server/requirements.txt` to reduce resolver churn:
+  - pinned `torchaudio==2.11.0` to match `torch==2.11.0`
+  - changed `pytorch-lightning==2.6.1` to `pytorch-lightning==2.4.0`
+  - added `lightning==2.4.0`
+- Reran the real tmux replay after the fix.
+- Captured successful runtime evidence showing:
+  - health-check success,
+  - live chunk POSTs succeeding,
+  - committed transcript output appearing chunk by chunk,
+  - end-to-end chunk timings being logged.
+
+### Why
+
+A live path that only works after an unpredictable multi-minute dependency backtracking cycle is not usable for iteration. The runtime blocker needed to be fixed before the live runner could be meaningfully validated.
+
+### What worked
+
+- The revised Dagger graph now isolates the `pip install` cache behind `requirements.txt` instead of invalidating it on every server code change.
+- Aligning the Lightning pins with NeMo’s `<=2.4.0` range eliminated the worst resolver thrash during startup.
+- The retried tmux run succeeded in reaching real live replay processing.
+- Captured runtime evidence from the successful retry includes:
+
+```text
+2026/04/13 17:25:06 Tunnel established at 127.0.0.1:43479, waiting for health check...
+2026/04/13 17:25:06 Health check passed (attempt 1)
+2026/04/13 17:25:06 ASR server ready at 127.0.0.1:43479
+2026/04/13 17:25:07 Committed +7 words: Welcome back to the Go Golems lab.
+2026/04/13 17:25:07 Processed live chunk seq=0 start=0.000s duration=5.000s server_words=8 committed_total=7 committed_added=7 processing_ms=1207 end_to_end=1.218s
+```
+
+and later:
+
+```text
+2026/04/13 17:26:00 Processed live chunk seq=18 start=81.000s duration=5.000s server_words=17 committed_total=201 committed_added=17 processing_ms=1294 end_to_end=2.677s
+```
+
+### What didn't work
+
+- The first tmux replay run hit long pip resolver backtracking instead of reaching inference quickly.
+- The relevant commands/log context were:
+
+```bash
+tmux new-session -d -s live-replay-e2e "cd /home/manuel/code/wesen/2026-04-13--transcription-go && go run ./cmd/transcribe live -i /home/manuel/code/wesen/2026-04-09--screencast-studio/recordings/rabbit-hole-2026-04-10--2/audio-mix.wav --chunk-duration 5 --overlap-seconds 0.5 --replay-speed 0 2>&1 | tee logs/live-replay-e2e-20260413-171638.log"
+```
+
+with characteristic log lines like:
+
+```text
+INFO: pip is looking at multiple versions of lightning to determine which version is compatible with other requirements.
+INFO: This is taking longer than usual. You might need to provide the dependency resolver with stricter constraints to reduce runtime.
+```
+
+### What I learned
+
+- The Dagger graph shape matters a lot for Python-heavy services: mounting the full source directory before dependency installation made iterative startup much more expensive than necessary.
+- The previous `pytorch-lightning==2.6.1` pin was a poor fit with NeMo’s transitive `lightning<=2.4.0,>2.2.1` expectation and contributed to resolver churn.
+- The Phase 1 live path is now real enough to expose transcript-quality issues and chunk-latency behavior under actual runtime conditions, which is exactly where we want to be at this stage.
+
+### What was tricky to build
+
+The tricky part was recognizing that the apparent “live replay is slow” problem was not actually about the replay logic or the chunk API. It was an operational cache/dependency issue at the container-build boundary. That distinction matters because fixing the wrong layer would have led to wasted work in the runner while the true bottleneck remained in Python environment setup.
+
+### What warrants a second pair of eyes
+
+- Whether the new Lightning pins (`2.4.0`) are the best long-term constraint set or just the first stable one
+- Whether the NeMo VCS requirement should remain as-is or be replaced with an explicit pinned wheel/version once confidence is higher
+- Whether the repeated NeMo/Lhotse warnings during chunk transcription indicate a future tuning opportunity for lower-latency live settings
+
+### What should be done in the future
+
+- Let the current tmux replay continue and inspect later transcript quality/throughput deeper into the file
+- Record final replay metrics once the run completes or enough representative chunks have been processed
+- Consider a follow-up tuning pass on NeMo/Lhotse runtime warnings if they materially affect throughput
+
+### Code review instructions
+
+Start here:
+
+- `/home/manuel/code/wesen/2026-04-13--transcription-go/internal/server/dagger.go`
+- `/home/manuel/code/wesen/2026-04-13--transcription-go/server/requirements.txt`
+- `/home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/runner.go`
+
+Validation commands:
+
+```bash
+cd /home/manuel/code/wesen/2026-04-13--transcription-go
+
+gofmt -w internal/server/dagger.go
+go test ./... -count=1
+
+# inspect the active replay session
+tmux capture-pane -pt live-replay-e2e:0 | tail -120
+```
+
+### Technical details
+
+Active successful replay validation context:
+
+- `tmux` session: `live-replay-e2e`
+- log file: `logs/live-replay-e2e-20260413-172135-pins.log`
+- replay command:
+
+```bash
+go run ./cmd/transcribe live \
+  -i /home/manuel/code/wesen/2026-04-09--screencast-studio/recordings/rabbit-hole-2026-04-10--2/audio-mix.wav \
+  --chunk-duration 5 \
+  --overlap-seconds 0.5 \
+  --replay-speed 0
+```
+
+### Clarification: why the resolver/backtracking blocker appeared now even though earlier runs worked
+
+This was most likely a **latent dependency-resolution issue that had been masked by cache**, not a brand-new runtime regression in the transcription code itself.
+
+The key mechanics were:
+
+1. **Earlier successful runs had a warm Dagger graph**
+   - The previous container graph mounted the full `server/` directory before `pip install -r requirements.txt`.
+   - As long as that source snapshot stayed stable enough, Dagger could reuse the already-built layer and startup looked fine.
+
+2. **The pip cache is not the same as a fully cached dependency-resolution result**
+   - `/root/.cache/pip` helps with downloaded wheels and artifacts.
+   - It does **not** eliminate the need for pip to re-run dependency resolution if the install layer is invalidated.
+
+3. **Live-transcription work changed the Python-side server files**
+   - We changed `server/server.py` to add `/transcribe/chunk` and related helpers.
+   - Because the old Dagger graph made `pip install` depend on the whole `server/` directory, those code changes invalidated the dependency-install layer even though `requirements.txt` had not meaningfully changed yet.
+
+4. **Once pip had to resolve again, a real version-tension surfaced**
+   - We had `pytorch-lightning==2.6.1` pinned.
+   - NeMo was pulling a `lightning<=2.4.0,>2.2.1` constraint transitively.
+   - `torchaudio` was also unpinned while `torch==2.11.0` was pinned.
+   - That combination was enough to trigger noticeable resolver backtracking.
+
+So the practical answer is:
+
+> it worked before because cache was hiding the problem, and it became visible now because recent Python/server edits forced pip to resolve dependencies again.
+
+This is also why the fix had two parts instead of one:
+
+- **graph fix** — make the Dagger `pip install` layer depend on `requirements.txt`, not the entire mutable server tree
+- **pin fix** — align the Python dependency versions so pip has a simpler, less contradictory solve to perform when it really does need to run again
