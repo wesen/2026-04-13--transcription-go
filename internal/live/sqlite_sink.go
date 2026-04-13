@@ -17,12 +17,12 @@ func NewSQLiteSink(path string) *SQLiteSink {
 	return &SQLiteSink{path: path}
 }
 
-func (s *SQLiteSink) Update(words []output.Word) error {
+func (s *SQLiteSink) Update(state TranscriptState) error {
 	if err := ensureOutputDir(filepath.Dir(s.path)); err != nil {
 		return fmt.Errorf("ensure sqlite dir: %w", err)
 	}
 	_ = os.Remove(s.path)
-	if err := output.WriteSQLite(words, s.path); err != nil {
+	if err := output.WriteSQLite(state.Committed, s.path); err != nil {
 		return fmt.Errorf("write sqlite: %w", err)
 	}
 	return nil

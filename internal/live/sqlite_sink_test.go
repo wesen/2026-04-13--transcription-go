@@ -9,16 +9,19 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-func TestSQLiteSinkWritesDatabase(t *testing.T) {
+func TestSQLiteSinkWritesCommittedWordsOnly(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "transcript.db")
 	sink := NewSQLiteSink(path)
 
-	words := []output.Word{
-		{Word: "Hello", Start: 0.0, End: 0.5},
-		{Word: "world", Start: 0.5, End: 1.0},
+	state := TranscriptState{
+		Committed: []output.Word{
+			{Word: "Hello", Start: 0.0, End: 0.5},
+			{Word: "world", Start: 0.5, End: 1.0},
+		},
+		Pending: []output.Word{{Word: "preview-only", Start: 1.1, End: 1.3}},
 	}
-	if err := sink.Update(words); err != nil {
+	if err := sink.Update(state); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 	db, err := sql.Open("sqlite", path)
@@ -31,6 +34,6 @@ func TestSQLiteSinkWritesDatabase(t *testing.T) {
 		t.Fatalf("count words: %v", err)
 	}
 	if count != 2 {
-		t.Fatalf("expected 2 words, got %d", count)
+		t.Fatalf("expected 2 committed words, got %d", count)
 	}
 }

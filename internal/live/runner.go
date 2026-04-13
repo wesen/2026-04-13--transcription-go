@@ -122,17 +122,23 @@ func (r *LiveRunner) Run(ctx context.Context) error {
 			words[i] = output.Word{Word: w.Word, Start: w.Start, End: w.End}
 		}
 		before := len(r.Accumulator.CommittedWords())
-		if err := r.Accumulator.ApplyFinalWords(words); err != nil {
+		if err := r.Accumulator.ApplyEvent(TranscriptEvent{
+			Type:      TranscriptEventFinalWords,
+			SessionID: chunk.SessionID,
+			Sequence:  chunk.Sequence,
+			UpToTime:  maxWordEnd(words),
+			Words:     words,
+		}); err != nil {
 			return fmt.Errorf("accumulate chunk %d: %w", chunk.Sequence, err)
 		}
-		committed := r.Accumulator.CommittedWords()
+		state := r.Accumulator.State()
 		for _, sink := range sinks {
-			if err := sink.Update(committed); err != nil {
+			if err := sink.Update(state); err != nil {
 				return fmt.Errorf("update sink after chunk %d: %w", chunk.Sequence, err)
 			}
 		}
 		latency := time.Since(chunk.EmittedAt).Round(time.Millisecond)
-		metrics.ObserveChunk(chunk, len(committed), resp.ProcessingMS, latency)
+		metrics.ObserveChunk(chunk, len(state.Committed), resp.ProcessingMS, latency)
 		if err := WriteMetricsSummary(r.Config.OutputDir, metrics.Summary(sessionID)); err != nil {
 			return fmt.Errorf("write metrics summary after chunk %d: %w", chunk.Sequence, err)
 		}
@@ -142,8 +148,8 @@ func (r *LiveRunner) Run(ctx context.Context) error {
 			chunk.Start,
 			chunk.Duration,
 			len(resp.Words),
-			len(committed),
-			len(committed)-before,
+			len(state.Committed),
+			len(state.Committed)-before,
 			resp.ProcessingMS,
 			latency,
 		)
@@ -153,7 +159,7 @@ func (r *LiveRunner) Run(ctx context.Context) error {
 		return err
 	}
 
-	committed := r.Accumulator.CommittedWords()
+	state := r.Accumulator.State()
 	summary := metrics.Summary(sessionID)
 	if err := WriteMetricsSummary(r.Config.OutputDir, summary); err != nil {
 		return err
@@ -162,7 +168,7 @@ func (r *LiveRunner) Run(ctx context.Context) error {
 		"Live replay complete: session=%s chunks_processed=%d committed_words=%d output_dir=%s elapsed=%s avg_server_ms=%.1f avg_end_to_end_ms=%.1f audio_per_wall=%.2fx",
 		sessionID,
 		processedChunks,
-		len(committed),
+		len(state.Committed),
 		r.Config.OutputDir,
 		time.Since(started).Round(time.Second),
 		summary.AverageServerProcessingMS,

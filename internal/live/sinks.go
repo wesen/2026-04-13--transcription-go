@@ -4,13 +4,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"github.com/go-go-golems/transcription-go/internal/output"
 )
 
-// Sink consumes committed transcript words and updates a live output artifact.
+// Sink consumes transcript state and updates a live output artifact. Durable
+// artifacts should derive from committed words only.
 type Sink interface {
-	Update(words []output.Word) error
+	Update(state TranscriptState) error
 }
 
 func buildSinks(outputDir string, formats []string) ([]Sink, error) {

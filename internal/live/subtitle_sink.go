@@ -18,11 +18,11 @@ func NewSubtitleSink(outputDir, format string) *SubtitleSink {
 	return &SubtitleSink{outputDir: outputDir, format: format}
 }
 
-func (s *SubtitleSink) Update(words []output.Word) error {
+func (s *SubtitleSink) Update(state TranscriptState) error {
 	if err := ensureOutputDir(s.outputDir); err != nil {
 		return fmt.Errorf("ensure output dir: %w", err)
 	}
-	segments := output.BuildSegments(words, 15.0, 120)
+	segments := output.BuildSegments(state.Committed, 15.0, 120)
 	path := filepath.Join(s.outputDir, "transcript."+s.format)
 	f, err := os.Create(path)
 	if err != nil {
