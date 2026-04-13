@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/go-go-golems/transcription-go/internal/asr"
 	"github.com/go-go-golems/transcription-go/internal/convert"
@@ -99,13 +101,41 @@ func run(ctx context.Context, inputPath, outputDir, formats string, noFillers bo
 	log.Printf("ASR server ready at %s", svc.Endpoint())
 
 	// Step 3: Transcribe
-	log.Printf("Transcribing: %s (chunk size: %ds)", convertedPath, chunkSize)
+	durationSec, estimatedChunks := estimateConvertedWAV(convertedPath, chunkSize)
+	if durationSec > 0 {
+		log.Printf("Transcribing: %s (chunk size: %ds, duration: %.1fs, estimated chunks: %d)", convertedPath, chunkSize, durationSec, estimatedChunks)
+	} else {
+		log.Printf("Transcribing: %s (chunk size: %ds)", convertedPath, chunkSize)
+	}
+
 	client := asr.NewClient(svc.Endpoint())
+	started := time.Now()
+	stopHeartbeat := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopHeartbeat:
+				return
+			case <-ticker.C:
+				elapsed := time.Since(started).Round(time.Second)
+				if estimatedChunks > 0 {
+					log.Printf("Still transcribing... elapsed=%s estimated_chunks=%d", elapsed, estimatedChunks)
+				} else {
+					log.Printf("Still transcribing... elapsed=%s", elapsed)
+				}
+			}
+		}
+	}()
+
 	result, err := client.TranscribeFull(ctx, convertedPath, chunkSize)
+	close(stopHeartbeat)
 	if err != nil {
 		return fmt.Errorf("transcribe: %w", err)
 	}
-	log.Printf("Transcription complete: %d words, %.1fs", result.WordCount, result.TotalDuration)
+	elapsed := time.Since(started).Round(time.Second)
+	log.Printf("Transcription complete: %d words, %.1fs audio, %d chunks, elapsed=%s", result.WordCount, result.TotalDuration, result.ChunkCount, elapsed)
 
 	// Convert to output.Word slice
 	words := make([]output.Word, len(result.Words))
@@ -177,4 +207,25 @@ func run(ctx context.Context, inputPath, outputDir, formats string, noFillers bo
 
 	log.Printf("Done!")
 	return nil
+}
+
+// estimateConvertedWAV returns duration/chunk estimate for the converted output.
+// The converter always writes 16kHz mono PCM16 WAV, so duration can be estimated
+// from file size without decoding the full file.
+func estimateConvertedWAV(path string, chunkSize int) (durationSec float64, chunkCount int) {
+	st, err := os.Stat(path)
+	if err != nil {
+		return 0, 0
+	}
+	const wavHeaderBytes = 44
+	const bytesPerSecond = 16000 * 2 // mono PCM16
+	dataBytes := st.Size() - wavHeaderBytes
+	if dataBytes <= 0 {
+		return 0, 0
+	}
+	durationSec = float64(dataBytes) / float64(bytesPerSecond)
+	if chunkSize > 0 {
+		chunkCount = int(math.Ceil(durationSec / float64(chunkSize)))
+	}
+	return durationSec, chunkCount
 }

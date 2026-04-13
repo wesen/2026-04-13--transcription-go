@@ -50,29 +50,26 @@ func Start(ctx context.Context, opts Options) (*ASRServer, error) {
 		WithDirectory("/app", serverDir).
 		WithWorkdir("/app").
 		WithExec([]string{"pip", "install", "-r", "requirements.txt"}).
-		WithExposedPort(opts.Port).
-		WithExec([]string{
-			"uvicorn", "server:app",
-			"--host", "0.0.0.0",
-			"--port", fmt.Sprintf("%d", opts.Port),
-		})
+		WithExposedPort(opts.Port)
 
-	// Convert to a Dagger service and start it
-	service := ctr.AsService()
+	// IMPORTANT: the long-running process must be configured on AsService.
+	// A previous WithExec(uvicorn ...) only affects the build graph, not the runtime service command.
+	service := ctr.AsService(dagger.ContainerAsServiceOpts{Args: []string{
+		"uvicorn", "server:app",
+		"--host", "0.0.0.0",
+		"--port", fmt.Sprintf("%d", opts.Port),
+	}})
 
-	// Start the service explicitly — this blocks until the exposed port accepts connections,
-	// which means model loading in the FastAPI lifespan must complete first.
-	log.Printf("Starting container (pip + model load from cache)...")
-	service, err = service.Start(ctx)
+	log.Printf("Creating host tunnel to ASR service...")
+	tunnel := client.Host().Tunnel(service)
+	log.Printf("Starting host tunnel...")
+	tunnel, err = tunnel.Start(ctx)
 	if err != nil {
 		client.Close()
-		return nil, fmt.Errorf("start service: %w", err)
+		return nil, fmt.Errorf("start tunnel: %w", err)
 	}
-	log.Printf("Container started, establishing tunnel...")
 
-	// Create a tunnel from the host to the running service
-	tunnel := client.Host().Tunnel(service)
-	endpoint, err := tunnel.Endpoint(ctx, dagger.ServiceEndpointOpts{Port: opts.Port})
+	endpoint, err := tunnel.Endpoint(ctx)
 	if err != nil {
 		client.Close()
 		return nil, fmt.Errorf("get tunnel endpoint: %w", err)
@@ -85,7 +82,7 @@ func Start(ctx context.Context, opts Options) (*ASRServer, error) {
 	}
 
 	// Wait for the HTTP server to be ready (model loading can take time)
-	log.Printf("ASR server ready at %s", s.endpoint)
+	log.Printf("Tunnel established at %s, waiting for health check...", svc.endpoint)
 	if err := svc.waitReady(ctx); err != nil {
 		svc.Stop()
 		return nil, fmt.Errorf("server health check: %w", err)
@@ -116,7 +113,7 @@ func (s *ASRServer) waitReady(ctx context.Context) error {
 		case <-time.After(time.Second):
 		}
 	}
-	return fmt.Errorf("server not ready after 120s")
+	return fmt.Errorf("server not ready after 60s")
 }
 
 // Endpoint returns the host:port address for the ASR server tunnel.

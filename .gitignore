@@ -4,6 +4,7 @@
 
 # Build output
 out/
+logs/
 
 # OS
 .DS_Store
