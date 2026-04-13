@@ -1,0 +1,10 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.11.0
+torchaudio
+soundfile==0.13.1
+omegaconf==2.3.0
+pytorch-lightning==2.6.1
+fastapi==0.115.12
+uvicorn[standard]==0.34.2
+python-multipart==0.0.20
+git+https://github.com/NVIDIA/NeMo.git@e99060017bafe5e6a7443c486ee259f81b9049e8#egg=nemo_toolkit[asr]

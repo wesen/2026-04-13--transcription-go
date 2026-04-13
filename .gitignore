@@ -1,0 +1,16 @@
+# Binaries
+/transcribe
+*.exe
+
+# Build output
+out/
+
+# OS
+.DS_Store
+
+# Go
+*.test
+*.prof
+
+# Audio
+*.wav
