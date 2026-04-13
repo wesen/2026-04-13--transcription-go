@@ -112,6 +112,107 @@ docmgr doc list --ticket TRANSCRIPTION-GO
 docmgr doctor --ticket TRANSCRIPTION-GO
 ```
 
+---
+
+## Step 2: Architecture Revision — Server Pattern + Go Output Formatting
+
+The user proposed three simplifications that significantly improve the architecture: (1) do ffmpeg conversion in Go instead of a separate Dagger container, (2) run a long-running ASR server in the Python container to keep the model in memory, and (3) handle all output formatting (SRT, VTT, TXT, SQLite) in Go. I verified the Dagger Go SDK (v0.20.5) supports `Container.AsService()` + `Host.Tunnel()` for the server pattern, and rewrote the design doc from scratch.
+
+### Prompt Context
+
+**User prompt (verbatim):** "can we do the ffmpeg work in go itself? simplifying the setup. Also, would we run a server in the transcription container to make it easier to keep model in memory and all? and then we can save to different output formats in go itself."
+
+**Assistant interpretation:** Three architectural simplifications: eliminate the ffmpeg container, run the Python ASR as a long-running HTTP server (not fire-and-forget), and move all output formatting to Go.
+
+**Inferred user intent:** Reduce complexity (fewer containers), improve performance (model stays warm), and make output format extensibility a Go concern (no Python changes needed for new formats).
+
+### What I did
+
+1. Investigated Dagger Go SDK v0.20.5 for service support — found `Container.AsService()`, `Host.Tunnel()`, `Service.Endpoint()` in `dagger.gen.go`
+2. Checked Go audio library ecosystem — concluded shelling out to ffmpeg is the pragmatic choice
+3. Designed the FastAPI server API: `GET /health`, `POST /transcribe`, `POST /transcribe/full`
+4. Rewrote the entire design doc (v2) with new architecture
+5. Added Go implementation sketches for all components: Dagger service lifecycle, ASR HTTP client, ffmpeg conversion, SRT/VTT/TXT/SQLite formatters
+6. Added v1 vs v2 comparison table
+
+### Why
+
+The three changes address real pain points:
+- **FFmpeg in Go**: One fewer container to manage. ffmpeg is ~5s, not worth a container.
+- **ASR server**: Model loading is ~30s. Keeping it in memory means batch jobs don't pay that cost repeatedly.
+- **Go output formatting**: Makes adding VTT, TXT, or custom formats trivial — no Python changes needed. Also makes the output logic testable without containers.
+
+### What worked
+
+- The Dagger service API is exactly what we need. `AsService()` + `Host.Tunnel()` creates a tunnel from the host to the container. The Go CLI can just use `http.Get`/`http.Post` to talk to the Python server.
+- The Python server script becomes much simpler: ~100 lines of FastAPI + NeMo, no SQLite, no SRT, no filler detection.
+- Clean separation of concerns: Python = inference only, Go = orchestration + formatting.
+
+### What didn't work
+
+- No issues during design. The Dagger SDK had all the APIs we needed.
+
+### What I learned
+
+1. `Container.AsService()` turns a Dagger container into a long-running service. Dagger manages the lifecycle.
+2. `Host.Tunnel(service)` creates a network tunnel from the host machine to the service, returning a new `Service` with host-reachable endpoint.
+3. `Service.Endpoint(ctx)` returns the host:port that the Go CLI can connect to.
+4. Pure Go audio libraries (go-audio/wav) exist but don't handle format decoding for non-WAV inputs. Shell out to ffmpeg for universal format support.
+
+### What was tricky to build
+
+The main design question was the Go-Python communication contract. Options considered:
+- **Files on disk** (v1): Python writes SQLite + SRT, Go reads them. Simple but couples Go to Python's output format.
+- **HTTP JSON API** (v2 chosen): Python returns word-level timestamps as JSON. Go handles everything else. Clean but requires HTTP server in the container.
+- **gRPC**: Overkill for 2 endpoints.
+
+Chose HTTP JSON for simplicity and debuggability (can curl the server directly for testing).
+
+### What warrants a second pair of eyes
+
+1. **`Host.Tunnel()` reliability**: This is a relatively new Dagger feature. Need to verify it works on Linux with the installed Dagger v0.20.0 engine + v0.20.5 SDK.
+2. **Server chunking strategy**: Should `/transcribe/full` handle chunking server-side (simpler Go client) or should the Go client send individual chunks (more control)? Current design: server handles chunking.
+3. **SQLite schema compatibility**: If the Go-generated SQLite needs to match the Python pipeline's schema exactly, we need to verify the schema is replicated correctly.
+
+### What should be done in the future
+
+1. Implement Phase 1 and validate against existing transcript data
+2. Test `Host.Tunnel()` on the actual machine — this is the biggest unknown
+3. Benchmark cold vs warm server startup
+4. Consider adding a `--daemon` mode for persistent server
+
+### Code review instructions
+
+**Files to review:**
+- `design-doc/01-go-dagger-transcription-pipeline-design-and-implementation-plan.md` — revised v2 design doc
+
+**How to validate:**
+```bash
+docmgr doctor --ticket TRANSCRIPTION-GO
+```
+
+### Technical details
+
+**Dagger Service API (from dagger.gen.go v0.20.5):**
+```go
+// Turn container into a service
+service := container.AsService()
+
+// Tunnel from host to service
+tunnel := client.Host().Tunnel(service)
+
+// Get host-reachable endpoint
+addr, _ := tunnel.Endpoint(ctx, dagger.ServiceEndpointOpts{Port: 8000})
+// e.g., "127.0.0.1:34567"
+```
+
+**FastAPI server endpoints:**
+```
+GET  /health              → {"status": "ok", "model_loaded": true}
+POST /transcribe          → {"words": [{"word": "hello", "start": 0.32, "end": 0.78}]}
+POST /transcribe/full     → {"words": [...], "total_duration": 1664.8, "word_count": 4248}
+```
+
 ### Technical details
 
 **Dagger Go SDK pattern (from Glazed):**
@@ -124,18 +225,6 @@ ctr := client.Container().From("node:22").
     WithExec([]string{"pnpm", "install"}).
     WithExec([]string{"pnpm", "build"})
 _, err = ctr.Directory("/src/dist").Export(ctx, outPath)
-```
-
-**Our adaptation:**
-```go
-hfCache := client.CacheVolume("transcription-hf-cache")
-pipCache := client.CacheVolume("transcription-pip-cache")
-ctr := client.Container().From("python:3.11-slim-bookworm").
-    WithMountedCache("/root/.cache/huggingface", hfCache).
-    WithMountedCache("/root/.cache/pip", pipCache).
-    WithDirectory("/pipeline/scripts", scriptsDir).
-    WithExec([]string{"pip", "install", "-r", "scripts/requirements.txt"}).
-    WithExec([]string{"python", "scripts/transcribe.py", ...})
 ```
 
 **SQLite schema (from transcript_db.py):**
