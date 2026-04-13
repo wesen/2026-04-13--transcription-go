@@ -2,13 +2,17 @@
 ASR transcription server using NVIDIA Nemotron Speech Streaming 0.6B.
 
 Exposes a FastAPI server with:
-  GET  /health             - health check
-  POST /transcribe/full    - transcribe a full audio file (server handles chunking)
-  POST /transcribe/chunk   - transcribe a single live chunk
+  GET  /health               - health check
+  POST /transcribe/full      - transcribe a full audio file (server handles chunking)
+  POST /transcribe/chunk     - transcribe a single live chunk
+  WS   /transcribe/stream    - session-oriented live streaming transcription
 
 The model is loaded once on startup and kept in memory.
 """
 
+from __future__ import annotations
+
+import base64
 import logging
 import os
 import subprocess
@@ -17,13 +21,18 @@ import time
 from contextlib import asynccontextmanager
 
 import soundfile as sf
-from fastapi import FastAPI, Form, UploadFile
-from omegaconf import OmegaConf, open_dict
+from fastapi import FastAPI, Form, UploadFile, WebSocket, WebSocketDisconnect
+from live_decoder import LiveDecoder
+from live_sessions import LiveSessionError, LiveSessionRegistry
+from omegaconf import open_dict
 
 logger = logging.getLogger("transcription.server")
 
 asr_model = None
 time_stride = None
+live_sessions = LiveSessionRegistry(
+    idle_timeout_seconds=float(os.environ.get("LIVE_SESSION_IDLE_TIMEOUT_SECONDS", "300"))
+)
 
 
 @asynccontextmanager
@@ -50,6 +59,8 @@ async def lifespan(app: FastAPI):
     logger.info("Model loaded. time_stride=%s", time_stride)
 
     yield
+
+    live_sessions.close_all()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -173,6 +184,165 @@ async def transcribe_chunk(
             os.unlink(normalized_path)
 
 
+@app.websocket("/transcribe/stream")
+async def transcribe_stream(websocket: WebSocket):
+    await websocket.accept()
+    bound_session_id = None
+    try:
+        while True:
+            expired = live_sessions.cleanup_expired()
+            if expired:
+                logger.info("cleaned up idle live sessions: %s", ", ".join(expired))
+
+            event = await websocket.receive_json()
+            event_type = (event.get("type") or "").strip()
+
+            if event_type == "start":
+                if bound_session_id is not None:
+                    await _send_ws_error(websocket, bound_session_id, "protocol-error", "session already started on this connection")
+                    continue
+
+                session_id = (event.get("session_id") or "").strip()
+                sample_rate = int(event.get("sample_rate", 16000))
+                channels = int(event.get("channels", 1))
+                sample_format = str(event.get("format", "pcm_s16le"))
+                source = str(event.get("source", "unknown"))
+                try:
+                    session = live_sessions.create_session(
+                        session_id,
+                        decoder_factory=lambda: LiveDecoder(
+                            _transcribe_chunk_file,
+                            sample_rate=sample_rate,
+                            channels=channels,
+                            sample_format=sample_format,
+                            min_partial_seconds=float(os.environ.get("LIVE_PARTIAL_MIN_SECONDS", "1.0")),
+                        ),
+                        source=source,
+                    )
+                except LiveSessionError as exc:
+                    await _send_ws_error(websocket, session_id, exc.code, exc.message)
+                    continue
+                bound_session_id = session.session_id
+                logger.info("live session started session_id=%s source=%s", session.session_id, source)
+                await websocket.send_json({"type": "started", "session_id": session.session_id})
+                continue
+
+            if bound_session_id is None:
+                await _send_ws_error(websocket, None, "session-not-started", "send a start event first")
+                continue
+
+            try:
+                session = live_sessions.get_session(bound_session_id)
+
+                if event_type == "audio":
+                    sequence = int(event.get("sequence", 0))
+                    pts = float(event.get("pts", 0.0))
+                    duration = float(event.get("duration", 0.0))
+                    pcm16_b64 = event.get("pcm16_base64", "")
+                    pcm16 = base64.b64decode(pcm16_b64)
+                    result = session.append_audio(
+                        sequence=sequence,
+                        pts=pts,
+                        duration=duration,
+                        pcm16_bytes=pcm16,
+                    )
+                    logger.info(
+                        "live audio session_id=%s sequence=%d pts=%.3f duration=%.3f buffered_duration=%.3f partial=%s",
+                        session.session_id,
+                        sequence,
+                        pts,
+                        duration,
+                        session.decoder.buffered_duration,
+                        bool(result and result.words),
+                    )
+                    if result is not None:
+                        await websocket.send_json(
+                            {
+                                "type": "partial",
+                                "session_id": session.session_id,
+                                "sequence": sequence,
+                                "text": _words_to_text(result.words),
+                                "words": result.words,
+                                "processing_ms": result.processing_ms,
+                            }
+                        )
+                    continue
+
+                if event_type == "flush":
+                    result = session.flush()
+                    logger.info(
+                        "live flush session_id=%s words=%d up_to_time=%.3f processing_ms=%d",
+                        session.session_id,
+                        len(result.words),
+                        result.up_to_time,
+                        result.processing_ms,
+                    )
+                    await websocket.send_json(
+                        {
+                            "type": "final_words",
+                            "session_id": session.session_id,
+                            "up_to_time": result.up_to_time,
+                            "words": result.words,
+                            "processing_ms": result.processing_ms,
+                        }
+                    )
+                    continue
+
+                if event_type == "stop":
+                    result = session.stop()
+                    logger.info(
+                        "live stop session_id=%s words=%d duration=%.3f processing_ms=%d",
+                        session.session_id,
+                        session.word_count,
+                        session.duration,
+                        result.processing_ms,
+                    )
+                    if result.words:
+                        await websocket.send_json(
+                            {
+                                "type": "final_words",
+                                "session_id": session.session_id,
+                                "up_to_time": result.up_to_time,
+                                "words": result.words,
+                                "processing_ms": result.processing_ms,
+                            }
+                        )
+                    await websocket.send_json(
+                        {
+                            "type": "stopped",
+                            "session_id": session.session_id,
+                            "word_count": session.word_count,
+                            "duration": session.duration,
+                        }
+                    )
+                    live_sessions.close_session(session.session_id, reason="stop")
+                    bound_session_id = None
+                    break
+
+                await _send_ws_error(websocket, session.session_id, "invalid-event-type", f"unsupported event type {event_type!r}")
+            except LiveSessionError as exc:
+                await _send_ws_error(websocket, bound_session_id, exc.code, exc.message)
+            except Exception as exc:  # pragma: no cover - defensive server error path
+                logger.exception("live websocket error session_id=%s", bound_session_id or "-")
+                await _send_ws_error(websocket, bound_session_id, "server-error", str(exc))
+    except WebSocketDisconnect:
+        logger.info("live websocket disconnected session_id=%s", bound_session_id or "-")
+    finally:
+        if bound_session_id:
+            live_sessions.close_session(bound_session_id, reason="broken-connection")
+
+
+async def _send_ws_error(websocket: WebSocket, session_id: str | None, code: str, message: str) -> None:
+    await websocket.send_json(
+        {
+            "type": "error",
+            "session_id": session_id or "",
+            "code": code,
+            "message": message,
+        }
+    )
+
+
 def _normalize_wav(input_path: str, start: float | None = None, duration: float | None = None) -> str:
     """Convert an audio file or segment into 16kHz mono PCM16 WAV."""
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
@@ -252,3 +422,7 @@ def _extract_words(hypotheses, chunk_start: float) -> list[dict]:
             words.append({"word": w, "start": round(ws, 3), "end": round(we, 3)})
 
     return words
+
+
+def _words_to_text(words: list[dict]) -> str:
+    return " ".join(word.get("word", "").strip() for word in words if word.get("word", "").strip())
