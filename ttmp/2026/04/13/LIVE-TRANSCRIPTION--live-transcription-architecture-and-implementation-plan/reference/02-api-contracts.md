@@ -28,8 +28,14 @@ RelatedFiles:
       Note: Summary artifact is now refreshed incrementally during replay
     - Path: internal/live/sinks.go
       Note: Phase 1 live runner can now persist committed transcript outputs to console/text/subtitle/sqlite artifacts
+    - Path: server/live_decoder.py
+      Note: Current buffered WS decoder behavior and constraints reflected in the API contract
+    - Path: server/live_sessions.py
+      Note: Current WS session registry and structured error behavior reflected in the API contract
     - Path: server/server.py
-      Note: Implemented FastAPI batch/chunk endpoints and shared helper flow
+      Note: |-
+        Implemented FastAPI batch/chunk endpoints and shared helper flow
+        Implemented WS event handling and endpoint semantics reflected in the API contract
     - Path: ttmp/internal/asr/client.go
       Note: Go-side HTTP contract for full-file and chunk uploads
     - Path: ttmp/server/server.py
@@ -40,6 +46,7 @@ LastUpdated: 2026-04-13T00:00:00Z
 WhatFor: Give implementers a concrete request/response schema reference for Phase 1 near-live mode and the future session-oriented streaming transport.
 WhenToUse: Use when implementing or reviewing client/server protocol changes for live transcription.
 ---
+
 
 
 
@@ -272,6 +279,33 @@ WS /transcribe/stream
   "message": "expected sequence 41, got 44"
 }
 ```
+
+### Current server-side implementation notes
+
+The Python service now has an initial session-oriented WebSocket implementation under:
+
+- `server/server.py`
+- `server/live_sessions.py`
+- `server/live_decoder.py`
+
+Current behavior/constraints:
+
+- `start` creates a server-side session registry entry keyed by `session_id`.
+- `audio` appends base64-decoded `pcm_s16le` bytes into a per-session buffered decoder.
+- `partial` events are emitted from the currently buffered region once enough unfinalized audio has accumulated.
+- `flush` emits `final_words` for the current buffered region and advances the session's finalized timeline.
+- `stop` performs a final flush, emits `stopped`, and removes the session.
+- The current implementation only supports:
+  - `sample_rate=16000`
+  - `channels=1`
+  - `format="pcm_s16le"`
+- Session sequencing is enforced on the server; out-of-order `audio.sequence` values produce structured `error` events.
+- Sessions are cleaned up on:
+  - idle timeout (`LIVE_SESSION_IDLE_TIMEOUT_SECONDS`, default `300`)
+  - explicit `stop`
+  - broken WebSocket connection
+  - app shutdown
+- Partial preview decode currently uses a buffered file-based decode behind the session boundary rather than true model-state streaming. This is a transport-correct first implementation, not yet the final optimized streaming decoder.
 
 ---
 

@@ -79,12 +79,19 @@ RelatedFiles:
       Note: Step 9 real persisted-output validation artifact inspected during live replay
     - Path: out-live-e2e/transcript.srt
       Note: Step 9 real persisted-output validation artifact inspected during live replay
+    - Path: server/live_decoder.py
+      Note: Step 14 buffered per-session decoder used by the initial WS transport
+    - Path: server/live_sessions.py
+      Note: Step 14 server-side live session registry and cleanup policy
+    - Path: server/live_sessions_test.py
+      Note: Step 14 lightweight Python tests for session and decoder invariants
     - Path: server/requirements.txt
       Note: Step 6 Python pin alignment to reduce resolver backtracking (commit 180dfdae073da2ba9469062b5ca0efcf45b7fbd4)
     - Path: server/server.py
       Note: |-
         Current full-file chunking implementation inspected for service-boundary refactoring
         Step 3 chunk API and Form-based multipart contract (commit d14a887adafe235d1a6ebbd4e519f8e479252cbd)
+        Step 14 FastAPI WebSocket endpoint for session-oriented live transcription
     - Path: ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/01-compare_transcript_dbs.py
       Note: Step 10 partial live-vs-reference comparison helper
     - Path: ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/02-extract_wav_segment.py
@@ -103,6 +110,7 @@ LastUpdated: 2026-04-13T00:00:00Z
 WhatFor: Record the design investigation so future engineers can understand how the recommendation was derived.
 WhenToUse: Use when continuing or reviewing the live transcription design work.
 ---
+
 
 
 
@@ -1714,3 +1722,119 @@ go test ./... -count=1
   - `LastFinalTime` advances monotonically
   - durable sinks use committed state only
   - out-of-order numbered events are rejected
+
+
+## Step 14: Add the first server-side WebSocket/session scaffold
+
+With the Go-side transcript-state model in place, the next normal step was to add the server-side session boundary instead of continuing to polish the temporary chunk overlap path. I implemented a first session-oriented WebSocket API in Python: a live session registry, a per-session buffered decoder object, and a `WS /transcribe/stream` endpoint that accepts `start` / `audio` / `flush` / `stop` and emits `started` / `partial` / `final_words` / `stopped` / `error`.
+
+This is intentionally the simplest honest version of streaming on the server. The transport and session lifecycle are now real, but the actual decoder is still buffered under the hood: incoming PCM frames are accumulated per session, partials are derived from the current buffered span, and `flush`/`stop` finalize that buffered region. That matches the ticket plan: get the protocol/session model in place first, then improve the underlying incremental decoding behavior later.
+
+### Prompt Context
+
+**User prompt (verbatim):** "ok, go ahead."
+
+**Assistant interpretation:** Continue with the next planned implementation slice after the Go-side state-model work, specifically the server-side WebSocket/session architecture.
+
+**Inferred user intent:** Keep moving along the intended live-streaming roadmap without getting bogged down in temporary proving-phase polish.
+
+**Commit (code):** e84dc41 — "Add server-side live sessions and websocket endpoint"
+
+### What I did
+- Added `server/live_decoder.py`:
+  - per-session buffered PCM16 decoder scaffold,
+  - `append_audio(...)`,
+  - `decode_partial()`,
+  - `flush()`,
+  - `close()`.
+- Added `server/live_sessions.py`:
+  - `LiveSessionRegistry`,
+  - `LiveSession`,
+  - structured `LiveSessionError` codes,
+  - idle cleanup,
+  - stop/broken-connection/shutdown cleanup hooks.
+- Updated `server/server.py` to:
+  - expose `WS /transcribe/stream`,
+  - accept `start`, `audio`, `flush`, and `stop` JSON events,
+  - emit `started`, `partial`, `final_words`, `stopped`, and `error` events,
+  - create and destroy sessions through the registry,
+  - keep the existing HTTP batch/chunk endpoints unchanged.
+- Added `server/live_sessions_test.py` with lightweight Python unit tests for:
+  - decoder flush/base-offset behavior,
+  - out-of-order audio sequence rejection,
+  - session close/session-not-found behavior.
+- Validated with:
+
+```bash
+cd /home/manuel/code/wesen/2026-04-13--transcription-go
+python3 -m unittest discover -s server -p '*_test.py'
+python3 -m py_compile server/server.py server/live_decoder.py server/live_sessions.py
+go test ./... -count=1
+```
+
+### Why
+- The Go side now understands explicit partial/final transcript state, so the next missing architectural piece was the server-side session boundary.
+- The long-term target is a real WebSocket transport with session lifecycle, not perfect HTTP-chunk overlap handling.
+- A buffered decoder behind a real session protocol is a better intermediate step than inventing more client-side overlap heuristics.
+
+### What worked
+- The new Python server modules stayed isolated and did not disturb the existing batch/chunk HTTP flow.
+- The session registry/decoder split made the WebSocket endpoint logic straightforward to implement.
+- Lightweight Python unit tests were enough to validate the initial session/decoder invariants without pulling the ASR model into the test loop.
+
+### What didn't work
+- N/A
+
+### What I learned
+- The right first server-side streaming milestone is not “perfect incremental ASR”, it is “real session lifecycle with explicit protocol events”.
+- A buffered per-session decoder already gives a useful place to hang sequence validation, cleanup policy, and future decoder-state evolution.
+- The existing `_transcribe_chunk_file(...)` helper is a good bridge for this first WS version because it keeps timestamp extraction and inference behavior consistent with the current server path.
+
+### What was tricky to build
+- The main subtlety was being honest about what is and is not streaming yet. The WebSocket/session transport is real, but the decoder still re-materializes buffered audio into a WAV and transcribes that buffered span. I had to preserve that distinction clearly in the code and docs so we do not confuse “WS transport exists” with “true incremental model-state streaming already exists”.
+- Another subtlety was cleanup policy. The initial implementation needed to clean up sessions in four places: idle-timeout sweeps, explicit `stop`, broken connection, and application shutdown. That policy is simple enough for now but still prevents abandoned server-side session objects from accumulating.
+
+### What warrants a second pair of eyes
+- Whether the current `partial` emission policy (buffered decode after a minimum amount of audio) is the right temporary behavior before a real incremental decoder lands
+- Whether the current server-side sequence validation is strict enough or should also validate `pts` continuity more aggressively
+- Whether the environment-tunable cleanup knobs (`LIVE_SESSION_IDLE_TIMEOUT_SECONDS`, `LIVE_PARTIAL_MIN_SECONDS`) are named and scoped appropriately
+
+### What should be done in the future
+- Add the Go WebSocket client and sender/receiver loops on top of this server-side WS contract
+- Make the live runner transport-agnostic so chunk and WS modes can coexist during transition
+- Replace the buffered decoder internals with a more truly incremental decoder/session-state implementation later
+
+### Code review instructions
+- Start with:
+  - `/home/manuel/code/wesen/2026-04-13--transcription-go/server/live_sessions.py`
+  - `/home/manuel/code/wesen/2026-04-13--transcription-go/server/live_decoder.py`
+  - `/home/manuel/code/wesen/2026-04-13--transcription-go/server/server.py`
+  - `/home/manuel/code/wesen/2026-04-13--transcription-go/server/live_sessions_test.py`
+- Validate with:
+
+```bash
+cd /home/manuel/code/wesen/2026-04-13--transcription-go
+python3 -m unittest discover -s server -p '*_test.py'
+python3 -m py_compile server/server.py server/live_decoder.py server/live_sessions.py
+go test ./... -count=1
+```
+
+### Technical details
+- Implemented WS endpoint:
+  - `WS /transcribe/stream`
+- Implemented client → server events:
+  - `start`
+  - `audio`
+  - `flush`
+  - `stop`
+- Implemented server → client events:
+  - `started`
+  - `partial`
+  - `final_words`
+  - `stopped`
+  - `error`
+- Current constraints:
+  - `sample_rate=16000`
+  - `channels=1`
+  - `format="pcm_s16le"`
+  - buffered preview/final decode inside each session rather than true model-state streaming

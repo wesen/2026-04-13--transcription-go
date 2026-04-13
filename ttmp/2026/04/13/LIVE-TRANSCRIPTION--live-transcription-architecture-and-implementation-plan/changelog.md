@@ -164,3 +164,15 @@ Step 13: introduced an explicit partial/final transcript-state model in Go, refa
 - /home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/subtitle_sink.go — Durable subtitle/text artifacts now derive from committed state only
 - /home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/sqlite_sink.go — Durable SQLite artifacts now derive from committed state only
 - /home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/accumulator_test.go — Added coverage for repeated partial revisions, promotion to final, overlap filtering, and out-of-order rejection
+
+
+## 2026-04-13
+
+Step 14: added the first server-side WebSocket/session scaffold with a live session registry, buffered per-session decoder, `WS /transcribe/stream`, structured session errors, cleanup policy, and lightweight Python tests (commit e84dc41).
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-04-13--transcription-go/server/live_sessions.py — Server-side live session registry, lifecycle, and structured sequence/session errors
+- /home/manuel/code/wesen/2026-04-13--transcription-go/server/live_decoder.py — Buffered per-session decoder scaffold used by the initial WS implementation
+- /home/manuel/code/wesen/2026-04-13--transcription-go/server/server.py — FastAPI now exposes `WS /transcribe/stream` beside the existing batch/chunk endpoints
+- /home/manuel/code/wesen/2026-04-13--transcription-go/server/live_sessions_test.py — Python tests for decoder/session invariants without loading the ASR model

@@ -245,7 +245,7 @@
 
 ### 3A. Protocol and session model
 
-- [ ] 3.1 Define WebSocket message schema
+- [x] 3.1 Define WebSocket message schema
   - Client events:
     - `start`
     - `audio`
@@ -262,14 +262,14 @@
     - `server/` protocol helpers
     - `internal/live/` protocol types
 
-- [ ] 3.2 Introduce server-side session registry
+- [x] 3.2 Introduce server-side session registry
   - Track active sessions by `session_id`
   - Manage lifecycle and cleanup
   - Files:
     - `server/live_sessions.py` (new)
     - `server/server.py`
 
-- [ ] 3.3 Define per-session decoder state object
+- [x] 3.3 Define per-session decoder state object
   - Hold incremental audio buffer / state
   - Expose methods:
     - append audio
@@ -282,14 +282,14 @@
 
 ### 3B. Server-side streaming API
 
-- [ ] 3.4 Add `WS /transcribe/stream`
+- [x] 3.4 Add `WS /transcribe/stream`
   - Accept session start event
   - Receive audio frames continuously
   - Emit partial and final result events
   - Files:
     - `server/server.py`
 
-- [ ] 3.5 Add structured error handling for live sessions
+- [x] 3.5 Add structured error handling for live sessions
   - Invalid event types
   - Sequence errors
   - Session-not-found
@@ -298,7 +298,7 @@
     - `server/server.py`
     - `server/live_sessions.py`
 
-- [ ] 3.6 Add session cleanup policy
+- [x] 3.6 Add session cleanup policy
   - Idle timeout
   - Stop event cleanup
   - Broken connection cleanup
