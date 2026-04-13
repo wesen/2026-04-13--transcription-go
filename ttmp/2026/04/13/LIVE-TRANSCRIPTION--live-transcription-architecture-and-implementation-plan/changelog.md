@@ -126,7 +126,7 @@ Step 10: added a ticket-local transcript DB comparison script and used it for th
 
 ### Related Files
 
-- /home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/compare_transcript_dbs.py — Reusable live-vs-reference SQLite comparison helper
+- /home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/01-compare_transcript_dbs.py — Reusable live-vs-reference SQLite comparison helper
 
 
 ## 2026-04-13
@@ -135,5 +135,17 @@ Step 11: recorded the completed full-run live replay results (3845 vs 4248 words
 
 ### Related Files
 
-- /home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/extract_wav_segment.py — Fast iteration helper for clipped WAV subsets
+- /home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/02-extract_wav_segment.py — Fast iteration helper for clipped WAV subsets
 
+
+
+## 2026-04-13
+
+Step 12: inspected the actual ordered words in the 120-second live and batch transcript DBs, wrote a dedicated ticket report for the mismatch regions, and normalized all ticket helper scripts to numbered `01-` / `02-` / `03-` names.
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/reference/03-word-analysis-report.md — Word-level analysis of missing/substituted/compressed regions on the 120-second subset
+- /home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/03-word_diff_report.py — Reusable direct word-sequence diff helper
+- /home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/01-compare_transcript_dbs.py — Numbered comparison helper name used by the ticket going forward
+- /home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/02-extract_wav_segment.py — Numbered clipped-WAV helper name used by the ticket going forward

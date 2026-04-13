@@ -72,9 +72,9 @@ RelatedFiles:
       Note: |-
         Current full-file chunking implementation inspected for service-boundary refactoring
         Step 3 chunk API and Form-based multipart contract (commit d14a887adafe235d1a6ebbd4e519f8e479252cbd)
-    - Path: ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/compare_transcript_dbs.py
+    - Path: ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/01-compare_transcript_dbs.py
       Note: Step 10 partial live-vs-reference comparison helper
-    - Path: ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/extract_wav_segment.py
+    - Path: ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/02-extract_wav_segment.py
       Note: Step 11 clipped-WAV fast-iteration helper
     - Path: ttmp/cmd/transcribe/main.go
       Note: Current batch CLI flow inspected while designing live-mode coexistence
@@ -1251,7 +1251,7 @@ Because the live replay was still running, this first comparison is intentionall
 ### What I did
 
 - Added a ticket-local comparison script:
-  - `ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/compare_transcript_dbs.py`
+  - `ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/01-compare_transcript_dbs.py`
 - The script:
   - opens both SQLite transcript DBs,
   - reports word/filler/chunk counts,
@@ -1318,13 +1318,13 @@ The main subtlety was making sure the script’s output is useful even for a par
 
 Start here:
 
-- `/home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/compare_transcript_dbs.py`
+- `/home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/01-compare_transcript_dbs.py`
 
 Validation command:
 
 ```bash
 cd /home/manuel/code/wesen/2026-04-13--transcription-go
-python3 ./ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/compare_transcript_dbs.py \
+python3 ./ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/01-compare_transcript_dbs.py \
   --live-db out-live-e2e/transcript.db \
   --reference-db /home/manuel/code/wesen/2026-04-09--screencast-studio/ttmp/2026/04/13/TRANSCRIPT-PIPELINE--setting-up-an-analysis-pipeline-for-transcripts/sources/audio_transcript.db
 ```
@@ -1373,7 +1373,7 @@ The important outcome is that the short-clip workflow already gives a clearer de
   - live coverage: `1656.14s`
   - reference coverage: `1656.0s`
 - Added a ticket-local WAV slicing helper:
-  - `ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/extract_wav_segment.py`
+  - `ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/02-extract_wav_segment.py`
 - Used it to create a 120s clip:
   - `/tmp/transcription-live-clip-000-120.wav`
 - Ran a short batch baseline on that clip:
@@ -1435,7 +1435,7 @@ The main subtlety here was choosing the right comparison baseline. The earlier f
 
 Start here:
 
-- `/home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/extract_wav_segment.py`
+- `/home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/02-extract_wav_segment.py`
 - `/home/manuel/code/wesen/2026-04-13--transcription-go/out-batch-clip-000-120/transcript.db`
 - `/home/manuel/code/wesen/2026-04-13--transcription-go/out-live-clip-000-120/transcript.db`
 - `/home/manuel/code/wesen/2026-04-13--transcription-go/out-live-e2e/live-summary.json`
@@ -1445,7 +1445,7 @@ Validation commands:
 ```bash
 cd /home/manuel/code/wesen/2026-04-13--transcription-go
 
-python3 ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/extract_wav_segment.py \
+python3 ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/02-extract_wav_segment.py \
   --input /home/manuel/code/wesen/2026-04-09--screencast-studio/recordings/rabbit-hole-2026-04-10--2/audio-mix.wav \
   --output /tmp/transcription-live-clip-000-120.wav \
   --start 0 \
@@ -1465,7 +1465,7 @@ go run ./cmd/transcribe live \
   --overlap-seconds 0.5 \
   --replay-speed 0
 
-python3 ./ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/compare_transcript_dbs.py \
+python3 ./ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/01-compare_transcript_dbs.py \
   --live-db out-live-clip-000-120/transcript.db \
   --reference-db out-batch-clip-000-120/transcript.db \
   --summary-json out-live-clip-000-120/live-summary.json
@@ -1492,3 +1492,99 @@ Fast 120s subset result:
 - live throughput: `3.714x`
 - average live server processing: `1166.815ms`
 - average live end-to-end latency: `2353.444ms`
+
+
+## Step 12: Inspect the actual live-vs-batch words directly and write a ticket report
+
+After the fast 120-second subset workflow was in place, the next useful step was to stop reasoning abstractly about counts and instead inspect the actual transcript words in order. I exported the words from the current live and batch transcript databases, diffed them directly, and wrote a dedicated report in the ticket describing what is genuinely missing, what is substituted, and which apparent “losses” are really just removal of duplicated junk.
+
+This step intentionally did not try to “fix” the live path yet. The purpose was to reduce ambiguity before more implementation work. The report now gives a concrete baseline for later Phase 2 and WebSocket work: some of the delta is real word loss around boundaries, some is ASR substitution noise, and some is batch-side duplication that should not necessarily be preserved.
+
+### Prompt Context
+
+**User prompt (verbatim):** "ok, look at the words then dude, just export them all and look at them, it's not that much. no need to be clever, just look at what's in the db right now."
+
+**Assistant interpretation:** Export the ordered transcript words from the current live and batch SQLite databases, inspect the concrete mismatches directly, and write the findings into the ticket.
+
+**Inferred user intent:** Stop over-abstracting the comparison and create a grounded, evidence-based explanation of the current live-vs-batch delta.
+
+### What I did
+- Exported the ordered words from:
+  - `out-live-clip-000-120/transcript.db`
+  - `out-batch-clip-000-120/transcript.db`
+- Inspected the actual live and batch word sequences side-by-side instead of relying only on aggregate counts.
+- Added a ticket-local helper script:
+  - `ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/03-word_diff_report.py`
+- Renamed the existing ticket helper scripts to numbered names for consistency and traceability:
+  - `scripts/01-compare_transcript_dbs.py`
+  - `scripts/02-extract_wav_segment.py`
+  - `scripts/03-word_diff_report.py`
+- Wrote a dedicated report:
+  - `ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/reference/03-word-analysis-report.md`
+- Updated the ticket task checklist so Phase 1 comparison work points at the new report.
+
+### Why
+- The `-21` word delta on the 120-second same-pipeline comparison was already small enough to inspect directly.
+- We needed to distinguish three different cases that raw counts blur together:
+  - true missing words,
+  - substitutions/corruptions,
+  - batch-side duplicated junk that the live path happened to collapse.
+
+### What worked
+- Direct export of the `words` table was enough to understand the current gap without any heavier tooling.
+- The dedicated diff script produced clear region-by-region evidence that is now reusable for later iterations.
+- The ticket now contains a concrete report rather than only count-level notes.
+
+### What didn't work
+- A follow-up shell command initially repeated the earlier relative-path mistake when trying to `chmod` the new helper script.
+- I corrected that by locating the file explicitly and rerunning the command with the correct repo-relative path.
+
+### What I learned
+- The current live-vs-batch difference on the 120-second subset is not a single bug.
+- Some of the missing words are real connector-word losses around chunk boundaries.
+- Some apparent losses are actually beneficial compression of duplicated junk that batch preserved.
+- That means later work should optimize for transcript quality and explicit finalization semantics, not just count parity.
+
+### What was tricky to build
+- The main subtlety was interpreting sequence diffs responsibly. A lower live word count does not automatically mean the live output is worse, because the batch baseline itself contains duplicated junk in a few places.
+- The report therefore had to separate recognition substitutions, boundary-related omissions, and beneficial duplicate collapse rather than flatten everything into one “missing words” bucket.
+
+### What warrants a second pair of eyes
+- Whether the mismatch classification in `reference/03-word-analysis-report.md` is the right framing for later tuning work
+- Whether later comparison should use additional clipped segments from harder parts of the recording
+- Whether the current chunk-size/overlap defaults are still the best proving setup before moving to the WebSocket path
+
+### What should be done in the future
+- Use the 120-second subset workflow as the default inspection loop for any remaining Phase 1 quality work
+- Avoid over-investing in perfect overlap heuristics now that the long-term target is session-oriented WebSocket streaming
+- Reuse the word-diff report/script when validating future state-model or transport changes
+
+### Code review instructions
+- Start with:
+  - `/home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/reference/03-word-analysis-report.md`
+  - `/home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/03-word_diff_report.py`
+  - `/home/manuel/code/wesen/2026-04-13--transcription-go/out-live-clip-000-120/transcript.db`
+  - `/home/manuel/code/wesen/2026-04-13--transcription-go/out-batch-clip-000-120/transcript.db`
+- Validate with:
+
+```bash
+cd /home/manuel/code/wesen/2026-04-13--transcription-go
+
+python3 ./ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/03-word_diff_report.py   --batch-db out-batch-clip-000-120/transcript.db   --live-db out-live-clip-000-120/transcript.db
+```
+
+### Technical details
+- 120-second subset counts:
+  - batch words: `323`
+  - live words: `302`
+  - delta: `-21`
+- Diff shape from normalized sequence comparison:
+  - mismatch regions: `32`
+  - deletes: `22`
+  - inserts: `5`
+  - replaces: `5`
+- Main classes observed:
+  - dropped connector/function words
+  - local substitutions (`Golems` → `Columns`, `trust that` → `try`)
+  - chunk-boundary phrase compression
+  - occasional live-side removal of duplicated junk that batch preserved

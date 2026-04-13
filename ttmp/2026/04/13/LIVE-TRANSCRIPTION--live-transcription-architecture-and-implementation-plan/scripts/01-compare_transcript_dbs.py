@@ -2,7 +2,7 @@
 """Compare a live replay transcript SQLite database against a reference transcript DB.
 
 Usage:
-  python3 compare_transcript_dbs.py \
+  python3 01-compare_transcript_dbs.py \
     --live-db /path/to/live/transcript.db \
     --reference-db /path/to/reference/audio_transcript.db \
     [--summary-json /path/to/live-summary.json]

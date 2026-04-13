@@ -2,7 +2,7 @@
 """Extract a time range from a PCM WAV file without transcoding.
 
 Usage:
-  python3 extract_wav_segment.py \
+  python3 02-extract_wav_segment.py \
     --input input.wav \
     --output clip.wav \
     --start 0 \

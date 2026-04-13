@@ -196,13 +196,14 @@
     - `internal/live/runner.go`
     - maybe `internal/live/metrics.go`
 
-- [ ] 1.19 Compare near-live output against batch output
+- [x] 1.19 Compare near-live output against batch output
   - Confirm word counts and transcript quality are within acceptable range
   - Validate overlap logic does not cause runaway duplication
   - Output to ticket docs
   - Current evidence:
     - full 27.7m live replay vs older reference DB: `3845` vs `4248` words (`-403`)
     - fast 120s subset live replay vs same-pipeline batch DB: `302` vs `323` words (`-21`)
+    - direct word-level analysis report: `reference/03-word-analysis-report.md`
 
 ---
 
