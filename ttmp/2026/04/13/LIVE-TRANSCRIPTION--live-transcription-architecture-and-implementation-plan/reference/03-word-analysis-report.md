@@ -3,34 +3,41 @@ Title: Word-level analysis report for live vs batch transcript output
 Ticket: LIVE-TRANSCRIPTION
 Status: active
 Topics:
-  - go
-  - dagger
-  - asr
-  - streaming
-  - transcription
-  - sqlite
+    - go
+    - dagger
+    - asr
+    - streaming
+    - transcription
+    - sqlite
 DocType: reference
 Intent: long-term
 Owners: []
 RelatedFiles:
-  - Path: ../../../../../out-live-clip-000-120/transcript.db
-    Note: 120s live replay transcript database used for direct word-level inspection
-  - Path: ../../../../../out-batch-clip-000-120/transcript.db
-    Note: 120s batch transcript database used as same-pipeline baseline
-  - Path: ../../../../../out-live-e2e/transcript.db
-    Note: Full-run live replay transcript database used for final count-level comparison
-  - Path: ../scripts/01-compare_transcript_dbs.py
-    Note: Count/coverage comparison helper used for full-run and subset comparisons
-  - Path: ../scripts/02-extract_wav_segment.py
-    Note: WAV slicing helper used to create the 120-second fast-iteration subset
-  - Path: ../scripts/03-word_diff_report.py
-    Note: Word-by-word diff report generator used for the 120-second analysis
+    - Path: out-batch-clip-000-120/transcript.db
+      Note: Batch baseline subset DB inspected directly in the word analysis report
+    - Path: out-live-clip-000-120/transcript.db
+      Note: Live replay subset DB inspected directly in the word analysis report
+    - Path: ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/01-compare_transcript_dbs.py
+      Note: Count/coverage comparison helper used for full-run and subset comparisons
+    - Path: ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/02-extract_wav_segment.py
+      Note: WAV slicing helper used to create the 120-second fast-iteration subset
+    - Path: ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/03-word_diff_report.py
+      Note: |-
+        Word-by-word diff report generator used for the 120-second analysis
+        Reusable script used to produce the ticket's word-level diff evidence
+    - Path: ttmp/out-batch-clip-000-120/transcript.db
+      Note: 120s batch transcript database used as same-pipeline baseline
+    - Path: ttmp/out-live-clip-000-120/transcript.db
+      Note: 120s live replay transcript database used for direct word-level inspection
+    - Path: ttmp/out-live-e2e/transcript.db
+      Note: Full-run live replay transcript database used for final count-level comparison
 ExternalSources: []
-Summary: "Detailed word-level analysis of the 120-second live replay vs batch baseline, plus context from the completed full-run comparison. Focuses on what words are actually missing, substituted, or duplicated in the current live path."
+Summary: Detailed word-level analysis of the 120-second live replay vs batch baseline, plus context from the completed full-run comparison. Focuses on what words are actually missing, substituted, or duplicated in the current live path.
 LastUpdated: 2026-04-13T00:00:00Z
-WhatFor: "Explain the current live-vs-batch word delta with direct evidence from the transcript databases."
-WhenToUse: "Use when debugging the remaining word-loss and transcript-quality differences in the live replay path."
+WhatFor: Explain the current live-vs-batch word delta with direct evidence from the transcript databases.
+WhenToUse: Use when debugging the remaining word-loss and transcript-quality differences in the live replay path.
 ---
+
 
 # Word-level analysis report for live vs batch transcript output
 

@@ -285,6 +285,19 @@ These invariants apply across chunk and streaming modes.
 - Client-side committed transcript state must be monotonic in time.
 - SRT/VTT/SQLite outputs should derive from committed/final words only.
 
+### Current Go-side implementation notes
+
+The Go live path now has an explicit transport-neutral transcript-state model under `internal/live/`:
+
+- `TranscriptEvent` distinguishes `partial` from `final_words`
+- `TranscriptState` exposes `Committed`, `Pending`, and `LastFinalTime`
+- the accumulator rejects out-of-order numbered events
+- partial updates replace the pending preview state
+- final updates append only monotonic, non-duplicate words to committed state
+- after finalization, sinks derive durable artifacts from committed words only; console output may additionally surface pending preview text
+
+This is intentionally aligned with the planned WebSocket event model so the chunk-based proving path and the future streaming path can share the same accumulator semantics.
+
 ---
 
 ## 5. File references

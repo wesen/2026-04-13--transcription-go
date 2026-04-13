@@ -31,11 +31,17 @@ RelatedFiles:
     - Path: internal/asr/client_test.go
       Note: Step 3 client contract tests (commit d14a887adafe235d1a6ebbd4e519f8e479252cbd)
     - Path: internal/live/accumulator.go
-      Note: Step 5 overlap-aware Phase 1 accumulator (commit b5aadd7617d06c596af6d165db58d94e7f26754d)
+      Note: |-
+        Step 5 overlap-aware Phase 1 accumulator (commit b5aadd7617d06c596af6d165db58d94e7f26754d)
+        Step 13 explicit pending vs committed state handling and sequence validation
     - Path: internal/live/accumulator_test.go
-      Note: Step 5 overlap-deduplication tests (commit b5aadd7617d06c596af6d165db58d94e7f26754d)
+      Note: |-
+        Step 5 overlap-deduplication tests (commit b5aadd7617d06c596af6d165db58d94e7f26754d)
+        Step 13 transcript-state tests for partial/final promotion and out-of-order rejection
     - Path: internal/live/console_sink.go
-      Note: Step 5 incremental committed-word console output (commit b5aadd7617d06c596af6d165db58d94e7f26754d)
+      Note: |-
+        Step 5 incremental committed-word console output (commit b5aadd7617d06c596af6d165db58d94e7f26754d)
+        Step 13 console sink consumes transcript state snapshots
     - Path: internal/live/metrics.go
       Note: Step 8 live replay metrics collection and summary artifact (commit 6560072a7d7c567ba3e0408d9a0a99494a21eeaf)
     - Path: internal/live/metrics_test.go
@@ -48,14 +54,21 @@ RelatedFiles:
       Note: |-
         Step 2 live runner scaffold (commit 23f88e5d123a9482b0ca39519876eded5788f119)
         Step 5 runnable live chunk loop over replay input (commit b5aadd7617d06c596af6d165db58d94e7f26754d)
+        Step 13 current chunk replay path now feeds TranscriptEvent values
     - Path: internal/live/sinks.go
       Note: Step 7 live sink construction from requested formats (commit 0fc41bf9f2a2664eadbaaa1aed66e6a8f30ffa53)
     - Path: internal/live/source.go
       Note: Step 2 audio source contract scaffold (commit 23f88e5d123a9482b0ca39519876eded5788f119)
     - Path: internal/live/sqlite_sink.go
-      Note: Step 7 rolling SQLite artifact sink (commit 0fc41bf9f2a2664eadbaaa1aed66e6a8f30ffa53)
+      Note: |-
+        Step 7 rolling SQLite artifact sink (commit 0fc41bf9f2a2664eadbaaa1aed66e6a8f30ffa53)
+        Step 13 sqlite sink consumes committed state only
     - Path: internal/live/subtitle_sink.go
-      Note: Step 7 rolling subtitle/text artifact sink (commit 0fc41bf9f2a2664eadbaaa1aed66e6a8f30ffa53)
+      Note: |-
+        Step 7 rolling subtitle/text artifact sink (commit 0fc41bf9f2a2664eadbaaa1aed66e6a8f30ffa53)
+        Step 13 subtitle/text sink consumes committed state only
+    - Path: internal/live/types.go
+      Note: Step 13 transport-neutral transcript event/state definitions for future WS work
     - Path: internal/server/dagger.go
       Note: |-
         Warm Dagger service boundary inspected as live-mode foundation
@@ -90,6 +103,7 @@ LastUpdated: 2026-04-13T00:00:00Z
 WhatFor: Record the design investigation so future engineers can understand how the recommendation was derived.
 WhenToUse: Use when continuing or reviewing the live transcription design work.
 ---
+
 
 
 
@@ -1588,3 +1602,115 @@ python3 ./ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-an
   - local substitutions (`Golems` → `Columns`, `trust that` → `try`)
   - chunk-boundary phrase compression
   - occasional live-side removal of duplicated junk that batch preserved
+
+
+## Step 13: Introduce an explicit partial/final transcript-state model in Go
+
+With the word-analysis report in place, the next useful step was not to over-tune overlap heuristics but to move the Go live path closer to the long-term WebSocket architecture. I introduced an explicit transcript-state model that separates pending preview words from committed final words, so the current chunk runner and the future WebSocket transport can share the same accumulator semantics.
+
+This step keeps the current Phase 1 replay path working, but it changes the internal shape of the live system in a way that matters later: the accumulator now consumes transport-neutral transcript events, the sinks consume transcript state snapshots, and the tests cover partial revisions, promotion to final, overlap filtering, and out-of-order event rejection.
+
+### Prompt Context
+
+**User prompt (verbatim):** "ok, let's continue with the normal plan, and yes let's not make this perfect. Continue"
+
+**Assistant interpretation:** Continue the planned live-transcription implementation without over-optimizing the temporary Phase 1 overlap heuristics, and take the next slice that best supports the future WebSocket design.
+
+**Inferred user intent:** Keep forward momentum toward the real streaming architecture instead of spending too much time polishing the proving-phase chunk logic.
+
+**Commit (code):** 64bb79c — "Add explicit partial/final transcript state model"
+
+### What I did
+- Added `internal/live/types.go` with transport-neutral live types:
+  - `TranscriptEvent`
+  - `TranscriptEventType`
+  - `TranscriptState`
+- Refactored `internal/live/accumulator.go` to:
+  - accept explicit `partial` vs `final_words` events,
+  - track `Committed`, `Pending`, and `LastFinalTime`,
+  - enforce monotonic finalization,
+  - reject out-of-order numbered events,
+  - keep the old `ApplyFinalWords(...)` convenience path for current callers.
+- Refactored live sinks so they consume transcript state rather than raw committed slices:
+  - `internal/live/sinks.go`
+  - `internal/live/console_sink.go`
+  - `internal/live/subtitle_sink.go`
+  - `internal/live/sqlite_sink.go`
+- Updated the live runner to feed `TranscriptEvent` values into the accumulator and to hand `TranscriptState` snapshots to sinks.
+- Expanded tests in `internal/live/accumulator_test.go` to cover:
+  - repeated partial revisions,
+  - partial → final promotion,
+  - overlap-induced duplicate filtering,
+  - out-of-order event rejection.
+- Updated sink tests so durable artifacts verify they use committed words only.
+- Ran:
+
+```bash
+cd /home/manuel/code/wesen/2026-04-13--transcription-go
+gofmt -w internal/live/types.go internal/live/accumulator.go internal/live/accumulator_test.go internal/live/sinks.go internal/live/console_sink.go internal/live/subtitle_sink.go internal/live/subtitle_sink_test.go internal/live/sqlite_sink.go internal/live/sqlite_sink_test.go internal/live/runner.go
+go test ./internal/live/... -count=1
+go test ./... -count=1
+```
+
+### Why
+- The future WebSocket path will emit partial and final transcript events explicitly.
+- It is better to align the Go-side accumulator model now than to spend more time perfecting temporary overlap heuristics.
+- Durable sinks should operate on committed state only, even if console output later shows preview text.
+
+### What worked
+- The refactor stayed local to `internal/live/` and did not disturb the batch pipeline.
+- The live package tests now cover the state transitions we expect the future WS client/receiver loop to exercise.
+- The full repo test run passed after the refactor.
+
+### What didn't work
+- During the refactor I briefly introduced a compile issue in `ConsoleSink` by trying to over-generalize the word-joining helper; the concrete `[]output.Word` helper was simpler and correct.
+- I also hit a package-level helper-name collision between test code and the non-test console sink helper; renaming the test helper resolved it cleanly.
+
+### What I learned
+- The right next abstraction boundary was not “better overlap math”, it was “make state explicit”.
+- Sinks become easier to reason about once they always receive the full transcript snapshot and are responsible for using only the committed portion if they are durable.
+- Sequence validation belongs in the accumulator-level state model even before WebSocket transport exists, because it clarifies how out-of-order live events should be handled.
+
+### What was tricky to build
+- The main subtlety was choosing sequence semantics that are useful now without overfitting to a future transport. I needed to allow repeated partial revisions for the same sequence and a later finalization of that sequence, while still rejecting older out-of-order events. The implemented rule is intentionally simple: repeated partials for the current sequence are allowed, a final event can finalize that sequence once, and older sequences are rejected.
+- Another subtle point was preserving the current replay runner behavior while changing the sink interface from raw committed words to transcript-state snapshots. The runner now bridges the current chunk API into the new event model without changing the external CLI behavior.
+
+### What warrants a second pair of eyes
+- Whether the current sequence-handling rule is the right base semantics for the future WS receiver loop
+- Whether `LastFinalTime` and duplicate timing tolerances are still the right monotonic/finalization guards once real streaming results arrive
+- Whether console preview logging should stay minimal or become more structured once partials are emitted for real
+
+### What should be done in the future
+- Use this state model as the base for the planned WebSocket client/server event flow
+- Keep Phase 1 chunk mode stable, but avoid spending too much effort on perfect overlap tuning
+- Start Phase 3 by wiring actual WebSocket protocol/session code onto `TranscriptEvent` / `TranscriptState`
+
+### Code review instructions
+- Start with:
+  - `/home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/types.go`
+  - `/home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/accumulator.go`
+  - `/home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/runner.go`
+  - `/home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/console_sink.go`
+  - `/home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/subtitle_sink.go`
+  - `/home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/sqlite_sink.go`
+  - `/home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/accumulator_test.go`
+- Validate with:
+
+```bash
+cd /home/manuel/code/wesen/2026-04-13--transcription-go
+go test ./internal/live/... -count=1
+go test ./... -count=1
+```
+
+### Technical details
+- New event/state types:
+  - `TranscriptEventPartial`
+  - `TranscriptEventFinalWords`
+  - `TranscriptEvent`
+  - `TranscriptState`
+- Current accumulator rules:
+  - partial events replace pending preview state
+  - final events append monotonic non-duplicate words to committed state
+  - `LastFinalTime` advances monotonically
+  - durable sinks use committed state only
+  - out-of-order numbered events are rejected

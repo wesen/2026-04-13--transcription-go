@@ -149,3 +149,18 @@ Step 12: inspected the actual ordered words in the 120-second live and batch tra
 - /home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/03-word_diff_report.py — Reusable direct word-sequence diff helper
 - /home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/01-compare_transcript_dbs.py — Numbered comparison helper name used by the ticket going forward
 - /home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/02-extract_wav_segment.py — Numbered clipped-WAV helper name used by the ticket going forward
+
+
+## 2026-04-13
+
+Step 13: introduced an explicit partial/final transcript-state model in Go, refactored the accumulator and sinks around `TranscriptEvent` / `TranscriptState`, and added tests for partial revisions, finalization, duplicate filtering, and out-of-order event rejection (commit 64bb79c).
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/types.go — Transport-neutral transcript event/state definitions for current chunk mode and future WebSocket mode
+- /home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/accumulator.go — Explicit pending vs committed transcript handling with monotonic finalization and sequence validation
+- /home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/runner.go — Current chunk replay path now feeds the accumulator through transcript events
+- /home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/console_sink.go — Console sink can surface committed additions and pending preview text
+- /home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/subtitle_sink.go — Durable subtitle/text artifacts now derive from committed state only
+- /home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/sqlite_sink.go — Durable SQLite artifacts now derive from committed state only
+- /home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/accumulator_test.go — Added coverage for repeated partial revisions, promotion to final, overlap filtering, and out-of-order rejection

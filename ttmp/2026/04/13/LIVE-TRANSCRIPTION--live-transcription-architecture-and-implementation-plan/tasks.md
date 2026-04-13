@@ -209,20 +209,20 @@
 
 ## Phase 2 — Formal transcript-state model
 
-- [ ] 2.1 Introduce explicit partial vs final state model
+- [x] 2.1 Introduce explicit partial vs final state model
   - Add result/event types that distinguish preview text from committed words
   - Files:
     - `internal/live/types.go`
     - `internal/live/accumulator.go`
 
-- [ ] 2.2 Define transcript finalization rules
+- [x] 2.2 Define transcript finalization rules
   - Document exactly when a word moves from pending to committed
   - Ensure finalization is monotonic in time
   - Files:
     - `internal/live/accumulator.go`
     - ticket reference docs
 
-- [ ] 2.3 Refactor rolling outputs to depend only on committed state
+- [x] 2.3 Refactor rolling outputs to depend only on committed state
   - Console may show pending state
   - SRT/VTT/SQLite should use committed state only
   - Files:
@@ -230,7 +230,7 @@
     - `internal/live/subtitle_sink.go`
     - `internal/live/sqlite_sink.go`
 
-- [ ] 2.4 Add transcript-state tests
+- [x] 2.4 Add transcript-state tests
   - Cases:
     - repeated partial revisions
     - partial → final promotion
