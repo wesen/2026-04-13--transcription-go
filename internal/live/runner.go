@@ -133,6 +133,9 @@ func (r *LiveRunner) Run(ctx context.Context) error {
 		}
 		latency := time.Since(chunk.EmittedAt).Round(time.Millisecond)
 		metrics.ObserveChunk(chunk, len(committed), resp.ProcessingMS, latency)
+		if err := WriteMetricsSummary(r.Config.OutputDir, metrics.Summary(sessionID)); err != nil {
+			return fmt.Errorf("write metrics summary after chunk %d: %w", chunk.Sequence, err)
+		}
 		log.Printf(
 			"Processed live chunk seq=%d start=%.3fs duration=%.3fs server_words=%d committed_total=%d committed_added=%d processing_ms=%d end_to_end=%s",
 			chunk.Sequence,
