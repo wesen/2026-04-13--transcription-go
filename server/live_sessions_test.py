@@ -5,7 +5,7 @@ from live_sessions import LiveSessionError, LiveSessionRegistry
 
 
 class LiveDecoderAndSessionTests(unittest.TestCase):
-    def test_decoder_flush_advances_base_offset(self):
+    def test_decoder_flush_tracks_pts_not_cumulative_overlap(self):
         offsets = []
 
         def transcribe(path, chunk_start):
@@ -13,7 +13,7 @@ class LiveDecoderAndSessionTests(unittest.TestCase):
             return [{"word": "hello", "start": round(chunk_start, 3), "end": round(chunk_start + 0.5, 3)}]
 
         decoder = LiveDecoder(transcribe, min_partial_seconds=0.0)
-        decoder.append_audio(b"\x00\x00" * 16000)
+        decoder.append_audio(b"\x00\x00" * 16000, pts=0.0)
         partial = decoder.decode_partial()
         self.assertIsNotNone(partial)
         self.assertEqual(partial.up_to_time, 1.0)
@@ -22,11 +22,11 @@ class LiveDecoderAndSessionTests(unittest.TestCase):
         self.assertEqual(decoder.finalized_duration, 1.0)
         self.assertEqual(decoder.finalized_word_count, 1)
 
-        decoder.append_audio(b"\x00\x00" * 16000)
+        decoder.append_audio(b"\x00\x00" * 16000, pts=0.5)
         next_final = decoder.flush()
-        self.assertEqual(next_final.words[0]["start"], 1.0)
-        self.assertEqual(decoder.finalized_duration, 2.0)
-        self.assertEqual(offsets, [0.0, 0.0, 1.0])
+        self.assertEqual(next_final.words[0]["start"], 0.5)
+        self.assertEqual(decoder.finalized_duration, 1.5)
+        self.assertEqual(offsets, [0.0, 0.0, 0.5])
 
     def test_session_registry_rejects_out_of_order_sequence(self):
         registry = LiveSessionRegistry(idle_timeout_seconds=300)

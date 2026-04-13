@@ -40,7 +40,7 @@ class LiveSession:
         if duration < 0:
             raise LiveSessionError("invalid-duration", f"duration must be >= 0, got {duration}")
         try:
-            self.decoder.append_audio(pcm16_bytes)
+            self.decoder.append_audio(pcm16_bytes, pts=pts)
         except LiveDecoderError as exc:
             raise LiveSessionError("decoder-error", str(exc)) from exc
         self.expected_sequence += 1

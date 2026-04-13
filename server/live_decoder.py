@@ -24,9 +24,9 @@ class LiveDecoder:
 
     This is intentionally simple: audio frames are buffered as raw PCM16, the
     current buffered region can be decoded as a partial preview, and `flush()`
-    finalizes the currently buffered audio span. That keeps the transport and
-    session model real even though the underlying ASR invocation is still a
-    buffered file decode for now.
+    finalizes the currently buffered audio span. The buffered span is anchored to
+    the incoming audio PTS so replay/window overlap does not accumulate into
+    artificial timestamp drift.
     """
 
     def __init__(
@@ -52,7 +52,8 @@ class LiveDecoder:
         self.min_partial_seconds = min_partial_seconds
         self._bytes_per_sample = 2
         self._buffer = bytearray()
-        self._base_offset = 0.0
+        self._buffer_start_pts: float | None = None
+        self._finalized_duration = 0.0
         self._finalized_word_count = 0
         self._closed = False
 
@@ -62,7 +63,7 @@ class LiveDecoder:
 
     @property
     def finalized_duration(self) -> float:
-        return round(self._base_offset, 3)
+        return round(self._finalized_duration, 3)
 
     @property
     def buffered_duration(self) -> float:
@@ -71,11 +72,13 @@ class LiveDecoder:
             return 0.0
         return len(self._buffer) / frame_bytes
 
-    def append_audio(self, pcm16_bytes: bytes) -> None:
+    def append_audio(self, pcm16_bytes: bytes, *, pts: float) -> None:
         if self._closed:
             raise LiveDecoderError("decoder is closed")
         if not pcm16_bytes:
             return
+        if self._buffer_start_pts is None:
+            self._buffer_start_pts = pts
         self._buffer.extend(pcm16_bytes)
 
     def decode_partial(self) -> DecodeResult | None:
@@ -88,6 +91,7 @@ class LiveDecoder:
 
     def close(self) -> None:
         self._buffer.clear()
+        self._buffer_start_pts = None
         self._closed = True
 
     def _decode(self, *, finalize: bool) -> DecodeResult:
@@ -95,13 +99,14 @@ class LiveDecoder:
             raise LiveDecoderError("decoder is closed")
 
         duration = round(self.buffered_duration, 3)
+        start_pts = self._buffer_start_pts if self._buffer_start_pts is not None else self._finalized_duration
         if not self._buffer:
-            return DecodeResult(words=[], up_to_time=round(self._base_offset, 3), chunk_duration=0.0, processing_ms=0)
+            return DecodeResult(words=[], up_to_time=round(start_pts, 3), chunk_duration=0.0, processing_ms=0)
 
         started = time.perf_counter()
         path = self._write_buffer_to_wav(bytes(self._buffer))
         try:
-            words = self._transcribe_file(path, self._base_offset)
+            words = self._transcribe_file(path, start_pts)
         finally:
             try:
                 import os
@@ -111,12 +116,13 @@ class LiveDecoder:
                 pass
 
         processing_ms = round((time.perf_counter() - started) * 1000)
-        up_to_time = round(self._base_offset + duration, 3)
+        up_to_time = round(start_pts + duration, 3)
 
         if finalize:
-            self._base_offset += duration
+            self._finalized_duration = max(self._finalized_duration, up_to_time)
             self._finalized_word_count += len(words)
             self._buffer.clear()
+            self._buffer_start_pts = None
 
         return DecodeResult(
             words=words,
