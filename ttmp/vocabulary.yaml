@@ -5,6 +5,20 @@ topics:
       description: Backend services
     - slug: websocket
       description: WebSocket lifecycle & events
+    - slug: asr
+      description: Automatic Speech Recognition
+    - slug: audio
+      description: Audio processing and manipulation
+    - slug: dagger
+      description: Dagger CI/CD container orchestration
+    - slug: docker
+      description: Docker containers and images
+    - slug: go
+      description: Go programming language
+    - slug: nemo
+      description: NVIDIA NeMo toolkit for ASR
+    - slug: transcription
+      description: Audio to text transcription
 docTypes:
     - slug: design-doc
       description: Structured rationale and architecture notes
