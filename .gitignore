@@ -4,6 +4,8 @@
 
 # Build output
 out/
+out-live*/
+out-batch-*/
 logs/
 
 # OS
