@@ -24,6 +24,8 @@ RelatedFiles:
       Note: Phase 1 live runner now emits a machine-readable replay summary artifact
     - Path: internal/live/replay_source.go
       Note: Phase 1 simulated live source now uses replayed WAV input rather than directory watching
+    - Path: internal/live/runner.go
+      Note: Summary artifact is now refreshed incrementally during replay
     - Path: internal/live/sinks.go
       Note: Phase 1 live runner can now persist committed transcript outputs to console/text/subtitle/sqlite artifacts
     - Path: server/server.py
@@ -38,6 +40,7 @@ LastUpdated: 2026-04-13T00:00:00Z
 WhatFor: Give implementers a concrete request/response schema reference for Phase 1 near-live mode and the future session-oriented streaming transport.
 WhenToUse: Use when implementing or reviewing client/server protocol changes for live transcription.
 ---
+
 
 
 
@@ -156,6 +159,7 @@ POST /transcribe/chunk
   - `transcript.db`
   under the configured live `--output-dir`.
 - The current Phase 1 live runner also writes `live-summary.json` under `--output-dir`, capturing replay/session metrics such as chunk count, committed word count, average server processing time, average end-to-end latency, and effective audio-seconds-per-wall-second throughput.
+- `live-summary.json` is refreshed during the replay as chunks are processed, not only at final completion.
 
 ---
 

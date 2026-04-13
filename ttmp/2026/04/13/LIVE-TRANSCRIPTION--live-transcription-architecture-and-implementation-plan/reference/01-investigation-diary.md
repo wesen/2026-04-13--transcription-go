@@ -62,6 +62,10 @@ RelatedFiles:
         Step 6 dependency-layer caching fix for iterative live validation (commit 180dfdae073da2ba9469062b5ca0efcf45b7fbd4)
     - Path: internal/server/helpers.go
       Note: Step 2 shared server startup/path helpers (commit 23f88e5d123a9482b0ca39519876eded5788f119)
+    - Path: out-live-e2e/transcript.db
+      Note: Step 9 real persisted-output validation artifact inspected during live replay
+    - Path: out-live-e2e/transcript.srt
+      Note: Step 9 real persisted-output validation artifact inspected during live replay
     - Path: server/requirements.txt
       Note: Step 6 Python pin alignment to reduce resolver backtracking (commit 180dfdae073da2ba9469062b5ca0efcf45b7fbd4)
     - Path: server/server.py
@@ -82,6 +86,7 @@ LastUpdated: 2026-04-13T00:00:00Z
 WhatFor: Record the design investigation so future engineers can understand how the recommendation was derived.
 WhenToUse: Use when continuing or reviewing the live transcription design work.
 ---
+
 
 
 
@@ -1089,3 +1094,136 @@ The current `live-summary.json` contains fields for:
 - `max_server_processing_ms`
 - `average_end_to_end_ms`
 - `max_end_to_end_ms`
+
+## Step 9: Validate persisted live outputs in tmux and make the metrics summary update incrementally
+
+After the live sinks and summary artifact were implemented, I launched a fresh `tmux` replay run that used the new `--output-dir` and persisted-output formats. The main goal of this step was to confirm that the replay runner was not only transcribing chunk by chunk, but also leaving behind useful artifacts while the run was still in progress.
+
+That validation succeeded: while the run was active, `transcript.srt` and `transcript.db` were already present under `out-live-e2e/`, and their contents were updating as new chunks were processed. While inspecting that, I noticed one remaining observability gap: `live-summary.json` would only be written at the end of the run, which is inconvenient for long sessions. I fixed that by refreshing the summary file after each chunk as well.
+
+### Prompt Context
+
+**User prompt (verbatim):** (same as Step 2)
+
+**Assistant interpretation:** Continue turning the live path into something practically inspectable and validate it with real runs, not just unit tests.
+
+**Inferred user intent:** See the near-live system produce durable artifacts and make long-running replay sessions easier to observe while they are still executing.
+
+**Commit (code):** 3ff211a09fdc4d2bb2f9d557d153fd8138cc0c17 — "Update live summary artifact incrementally during replay"
+
+### What I did
+
+- Started a new tmux replay session using the new persisted-output path:
+
+```bash
+go run ./cmd/transcribe live \
+  -i /home/manuel/code/wesen/2026-04-09--screencast-studio/recordings/rabbit-hole-2026-04-10--2/audio-mix.wav \
+  -o ./out-live-e2e \
+  --live-format console,srt,db \
+  --chunk-duration 5 \
+  --overlap-seconds 0.5 \
+  --replay-speed 0
+```
+
+- Verified during the run that:
+  - `out-live-e2e/transcript.db` existed and was a valid SQLite database,
+  - `out-live-e2e/transcript.srt` existed and contained current transcript segments.
+- Captured concrete runtime evidence showing chunk progress and output persistence.
+- Updated `internal/live/runner.go` so `live-summary.json` is refreshed after each processed chunk rather than only at final completion.
+- Ran:
+  - `gofmt -w internal/live/runner.go`
+  - `go test ./... -count=1`
+
+### Why
+
+For long replays, end-of-run artifacts are not enough. The system should be inspectable while it is still running, especially when using `tmux` for iterative validation.
+
+### What worked
+
+- The persisted-output replay created live artifacts successfully.
+- At inspection time, `out-live-e2e/` contained:
+  - `transcript.db`
+  - `transcript.srt`
+- Sample SRT content looked correct structurally, for example:
+
+```text
+1
+00:00:02,240 --> 00:00:05,120
+Welcome back to the Go Golems lab.
+```
+
+- SQLite validation showed the file was a real database while the run was in progress:
+
+```text
+out-live-e2e/transcript.db: SQLite 3.x database ...
+```
+
+- The running session was still processing chunks successfully, e.g.:
+
+```text
+2026/04/13 17:41:36 Processed live chunk seq=22 start=99.000s duration=5.000s server_words=17 committed_total=260 committed_added=14 processing_ms=1983 end_to_end=4.022s
+```
+
+### What didn't work
+
+- The first version of the metrics-summary behavior only wrote `live-summary.json` when the run finished.
+- That was not ideal for a long-running tmux workflow because it meant the summary artifact lagged behind the actual state of the live session.
+- I fixed that by writing the summary after each chunk update in addition to the final completion write.
+
+### What I learned
+
+- The live path is now far enough along that runtime validation produces genuinely useful artifacts mid-run, not just logs.
+- Incremental artifact updates matter for operator experience almost as much as end-of-run correctness when replay sessions are long.
+
+### What was tricky to build
+
+The tricky part here was not the file writing itself, but deciding what “good enough observability” means in a long replay. A summary file that only appears at the end is technically correct but operationally unsatisfying. Updating it incrementally makes the system much easier to inspect without adding much complexity.
+
+### What warrants a second pair of eyes
+
+- Whether `live-summary.json` should include per-chunk details in a future JSONL or separate metrics file
+- Whether rewriting the summary after every chunk is sufficient, or whether a periodic heartbeat/status file would be cleaner for very long runs
+- Whether additional live formats (`txt`, `vtt`) should be included in the next real tmux validation run
+
+### What should be done in the future
+
+- Let the persisted-output tmux replay continue and inspect the resulting output directory later in the run or at completion
+- Use the generated `transcript.db` and `live-summary.json` as the basis for the first batch-vs-live comparison notes
+- Consider adding a small comparison script to the ticket workspace for transcript database deltas
+
+### Code review instructions
+
+Start here:
+
+- `/home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/runner.go`
+- `/home/manuel/code/wesen/2026-04-13--transcription-go/out-live-e2e/transcript.srt`
+- `/home/manuel/code/wesen/2026-04-13--transcription-go/out-live-e2e/transcript.db`
+
+Validation commands:
+
+```bash
+cd /home/manuel/code/wesen/2026-04-13--transcription-go
+
+gofmt -w internal/live/runner.go
+go test ./... -count=1
+ls -lah out-live-e2e
+file out-live-e2e/transcript.db
+sed -n '1,40p' out-live-e2e/transcript.srt
+```
+
+### Technical details
+
+Validation context:
+
+- `tmux` session: `live-replay-output-e2e`
+- log file: `logs/live-replay-output-e2e-20260413-173731.log`
+- output dir: `out-live-e2e/`
+
+Observed files during replay:
+
+- `out-live-e2e/transcript.db`
+- `out-live-e2e/transcript.srt`
+
+Follow-up code change in this step:
+
+- `internal/live/runner.go` now writes `live-summary.json` after each processed chunk.

@@ -108,3 +108,14 @@ Step 8: added live replay metrics collection and a live-summary.json artifact wi
 - /home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/metrics.go — Replay metrics summary implementation
 - /home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/runner.go — Runner now writes metrics summary at completion
 
+
+## 2026-04-13
+
+Step 9: validated mid-run live artifacts in tmux (transcript.srt and transcript.db) and updated the live runner to refresh live-summary.json after each chunk for better observability (commit 3ff211a09fdc4d2bb2f9d557d153fd8138cc0c17).
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/runner.go — Incremental summary artifact refresh
+- /home/manuel/code/wesen/2026-04-13--transcription-go/out-live-e2e/transcript.db — Observed rolling SQLite artifact during replay validation
+- /home/manuel/code/wesen/2026-04-13--transcription-go/out-live-e2e/transcript.srt — Observed rolling subtitle artifact during replay validation
+
