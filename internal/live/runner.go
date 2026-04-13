@@ -69,7 +69,7 @@ func (r *LiveRunner) Run(ctx context.Context) error {
 
 	transport := strings.TrimSpace(r.Config.Transport)
 	if transport == "" {
-		transport = TransportChunk
+		transport = TransportWS
 	}
 	if transport != TransportChunk && transport != TransportWS {
 		return fmt.Errorf("unsupported live transport %q", transport)
@@ -330,7 +330,7 @@ func (r *LiveRunner) finishRun(sessionID string, started time.Time, metrics *Met
 func (r *LiveRunner) effectiveTransport() string {
 	transport := strings.TrimSpace(r.Config.Transport)
 	if transport == "" {
-		return TransportChunk
+		return TransportWS
 	}
 	return transport
 }
