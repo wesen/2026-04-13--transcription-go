@@ -14,10 +14,14 @@ DocType: reference
 Intent: long-term
 Owners: []
 RelatedFiles:
+    - Path: cmd/transcribe/live.go
+      Note: Replay-oriented live CLI flags reflect the current Phase 1 source strategy
     - Path: internal/asr/client.go
       Note: Implemented Go-side batch and chunk HTTP contracts
     - Path: internal/asr/client_test.go
       Note: Contract tests for multipart full/chunk uploads
+    - Path: internal/live/replay_source.go
+      Note: Phase 1 simulated live source now uses replayed WAV input rather than directory watching
     - Path: server/server.py
       Note: Implemented FastAPI batch/chunk endpoints and shared helper flow
     - Path: ttmp/internal/asr/client.go
@@ -32,6 +36,7 @@ WhenToUse: Use when implementing or reviewing client/server protocol changes for
 ---
 
 
+
 # Live transcription API contracts
 
 ## Purpose
@@ -41,6 +46,8 @@ This document captures the protocol shape for three layers of the system:
 1. the existing batch API,
 2. the implemented chunk API used for near-live mode,
 3. the planned WebSocket streaming API for the real production architecture.
+
+For Phase 1 simulated live testing, the current recommended source is a prerecorded WAV replayed on a synthetic timeline rather than a filesystem chunk watcher. That source choice shapes the current client-side runner, but does not change the transport contracts below.
 
 The intent is to make the transport boundary explicit so the Go and Python implementations can evolve without ambiguity.
 
@@ -159,7 +166,7 @@ WS /transcribe/stream
   "sample_rate": 16000,
   "channels": 1,
   "format": "pcm_s16le",
-  "source": "chunk-dir|stdin|mic|system-audio"
+  "source": "replay_wav|stdin|mic|system-audio"
 }
 ```
 

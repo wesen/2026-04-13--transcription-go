@@ -102,7 +102,7 @@
   - Files:
     - `internal/live/source.go`
 
-- [ ] 1.8 Implement WAV-backed replay source as the primary simulated live input
+- [x] 1.8 Implement WAV-backed replay source as the primary simulated live input
   - Read a prerecorded WAV file and emit fixed-duration frames/chunks on a simulated timeline
   - Support both real-time pacing and accelerated replay for tests
   - Make this the main Phase 1 source because it maps naturally onto the future WebSocket sender loop
@@ -117,7 +117,7 @@
 
 ### 1D. Client-side accumulation and rolling output
 
-- [ ] 1.10 Implement initial transcript accumulator
+- [x] 1.10 Implement initial transcript accumulator
   - Maintain:
     - committed words
     - pending words
@@ -126,7 +126,7 @@
   - Files:
     - `internal/live/accumulator.go`
 
-- [ ] 1.11 Implement overlap dedupe heuristics
+- [x] 1.11 Implement overlap dedupe heuristics
   - Drop near-duplicate words across adjacent chunks
   - Use timing tolerance and textual comparison
   - Add tests for repeated overlap windows
@@ -134,7 +134,7 @@
     - `internal/live/accumulator.go`
     - `internal/live/accumulator_test.go`
 
-- [ ] 1.12 Implement rolling console output
+- [x] 1.12 Implement rolling console output
   - Print live transcript updates without flooding the terminal excessively
   - Distinguish pending from committed output if useful
   - Files:
@@ -156,7 +156,7 @@
 
 ### 1E. Live CLI wiring
 
-- [ ] 1.15 Add `transcribe live` CLI command
+- [x] 1.15 Add `transcribe live` CLI command
   - Add flags for:
     - `--input` or another explicit replay WAV source flag
     - `--session-id`
@@ -167,7 +167,7 @@
     - `cmd/transcribe/main.go`
     - possibly `cmd/transcribe/live.go`
 
-- [ ] 1.16 Add live runner
+- [x] 1.16 Add live runner
   - Wire together:
     - Dagger service startup
     - source

@@ -57,3 +57,14 @@ Step 4: re-prioritized Phase 1 to use a WAV-backed replay source as the main sim
 - /home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/reference/01-investigation-diary.md — Recorded the source-strategy pivot and rationale
 - /home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/tasks.md — Phase 1 source strategy updated to match the eventual WebSocket architecture
 
+
+## 2026-04-13
+
+Step 5: implemented a WAV-backed replay source, overlap-aware Phase 1 accumulator, console sink, and a runnable transcribe-live chunk loop over the new /transcribe/chunk API (commit b5aadd7617d06c596af6d165db58d94e7f26754d).
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/accumulator.go — Overlap-aware committed transcript accumulation
+- /home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/replay_source.go — Simulated live replay source
+- /home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/runner.go — Live runner now uploads replayed chunks
+

@@ -16,7 +16,9 @@ RelatedFiles:
     - Path: cmd/transcribe/batch.go
       Note: Step 2 extracted batch implementation (commit 23f88e5d123a9482b0ca39519876eded5788f119)
     - Path: cmd/transcribe/live.go
-      Note: Step 2 live command scaffold (commit 23f88e5d123a9482b0ca39519876eded5788f119)
+      Note: |-
+        Step 2 live command scaffold (commit 23f88e5d123a9482b0ca39519876eded5788f119)
+        Step 5 replay-oriented live CLI flags and runner wiring (commit b5aadd7617d06c596af6d165db58d94e7f26754d)
     - Path: cmd/transcribe/main.go
       Note: Batch CLI flow inspected during live-architecture mapping
     - Path: cmd/transcribe/root.go
@@ -27,8 +29,20 @@ RelatedFiles:
         Step 3 chunk client and shared multipart helpers (commit d14a887adafe235d1a6ebbd4e519f8e479252cbd)
     - Path: internal/asr/client_test.go
       Note: Step 3 client contract tests (commit d14a887adafe235d1a6ebbd4e519f8e479252cbd)
+    - Path: internal/live/accumulator.go
+      Note: Step 5 overlap-aware Phase 1 accumulator (commit b5aadd7617d06c596af6d165db58d94e7f26754d)
+    - Path: internal/live/accumulator_test.go
+      Note: Step 5 overlap-deduplication tests (commit b5aadd7617d06c596af6d165db58d94e7f26754d)
+    - Path: internal/live/console_sink.go
+      Note: Step 5 incremental committed-word console output (commit b5aadd7617d06c596af6d165db58d94e7f26754d)
+    - Path: internal/live/replay_source.go
+      Note: Step 5 WAV-backed simulated live source (commit b5aadd7617d06c596af6d165db58d94e7f26754d)
+    - Path: internal/live/replay_source_test.go
+      Note: Step 5 replay-source chunking tests (commit b5aadd7617d06c596af6d165db58d94e7f26754d)
     - Path: internal/live/runner.go
-      Note: Step 2 live runner scaffold (commit 23f88e5d123a9482b0ca39519876eded5788f119)
+      Note: |-
+        Step 2 live runner scaffold (commit 23f88e5d123a9482b0ca39519876eded5788f119)
+        Step 5 runnable live chunk loop over replay input (commit b5aadd7617d06c596af6d165db58d94e7f26754d)
     - Path: internal/live/source.go
       Note: Step 2 audio source contract scaffold (commit 23f88e5d123a9482b0ca39519876eded5788f119)
     - Path: internal/server/dagger.go
@@ -53,6 +67,7 @@ LastUpdated: 2026-04-13T00:00:00Z
 WhatFor: Record the design investigation so future engineers can understand how the recommendation was derived.
 WhenToUse: Use when continuing or reviewing the live transcription design work.
 ---
+
 
 
 
@@ -507,3 +522,158 @@ The task changes were:
   - WAV-backed replay source with pacing control
 - deferred source:
   - chunk-directory ingestion, only if a real external integration later requires it
+
+## Step 5: Implement the WAV replay source, near-live accumulator, and runnable live chunk loop
+
+This step turned the live-transcription ticket from mostly protocol and scaffolding work into a runnable Phase 1 system. The new `transcribe live` path now accepts a prerecorded WAV file, converts it to the repository’s standard 16kHz mono format, replays it as timed chunks, uploads each chunk to the new `/transcribe/chunk` endpoint, accumulates overlap-aware transcript words, and prints incremental committed transcript output to the console.
+
+This is still not the final WebSocket streaming architecture, but it is now a real simulated live pipeline rather than a design placeholder. Just as importantly, the chosen source model — replaying a WAV on a timeline — aligns much better with the eventual sender loop than the earlier chunk-directory idea would have.
+
+### Prompt Context
+
+**User prompt (verbatim):** (same as Step 4)
+
+**Assistant interpretation:** Continue implementing the next live-transcription tasks using the newly agreed WAV-replay source model rather than a filesystem-driven source.
+
+**Inferred user intent:** Turn the design pivot into working code that exercises the transport, timing, and accumulation boundaries the future WebSocket system will need.
+
+**Commit (code):** b5aadd7617d06c596af6d165db58d94e7f26754d — "Add WAV replay source and runnable live chunk pipeline"
+
+### What I did
+
+- Extended `cmd/transcribe/live.go` to support replay-oriented live flags:
+  - `--input`
+  - `--chunk-duration`
+  - `--overlap-seconds`
+  - `--replay-speed`
+  - `--session-id`
+  - `--live-format`
+- Extended `internal/live/source.go` so emitted chunks now carry `EmittedAt` timing in addition to sequence/timeline metadata.
+- Added `internal/live/replay_source.go`:
+  - reads a WAV file,
+  - slices it into fixed-duration chunks with overlap,
+  - writes temporary chunk WAVs,
+  - emits them on a simulated timeline,
+  - supports pacing control through `ReplaySpeed`.
+- Added `internal/live/console_sink.go` for incremental committed-word console output.
+- Replaced the placeholder accumulator in `internal/live/accumulator.go` with a Phase 1 overlap-aware accumulator that:
+  - tracks committed words,
+  - keeps monotonic finalization state,
+  - suppresses obvious overlapping duplicates.
+- Added tests:
+  - `internal/live/replay_source_test.go`
+  - `internal/live/accumulator_test.go`
+- Rewrote `internal/live/runner.go` so the live runner now:
+  - validates replay input,
+  - converts the input WAV to 16k mono,
+  - starts the Dagger ASR service,
+  - replays chunks through `/transcribe/chunk`,
+  - feeds the accumulator,
+  - prints incremental transcript output,
+  - logs chunk-level timing/progress.
+- Ran:
+  - `gofmt -w cmd/transcribe/live.go internal/live/*.go`
+  - `go test ./... -count=1`
+  - `go run ./cmd/transcribe live --help`
+
+### Why
+
+The repo needed a Phase 1 path that simulates real-time transcription without dragging in an irrelevant source mechanism. WAV replay is the simplest source that still exercises:
+
+- chunk timing,
+- overlap handling,
+- transport round trips,
+- transcript accumulation,
+- user-visible incremental output.
+
+### What worked
+
+- The live CLI now exposes replay-oriented controls rather than the earlier placeholder chunk-directory idea.
+- The replay source and accumulator both have unit tests.
+- The runner is now functional enough to drive the chunk API end to end once given a real WAV input and an available Dagger environment.
+- The full Go test suite passed after the implementation landed.
+
+### What didn't work
+
+- The first formatting pass failed because `internal/live/console_sink.go` had an extra closing brace.
+- Exact command:
+
+```bash
+gofmt -w cmd/transcribe/live.go internal/live/*.go
+```
+
+- Exact error:
+
+```text
+internal/live/console_sink.go:31:1: expected declaration, found '}'
+```
+
+- I fixed the stray brace, reran formatting, and then reran the full test suite successfully.
+
+### What I learned
+
+- The replay source is already a better conceptual bridge to the future WebSocket sender loop than a chunk-directory source would have been.
+- Even a simple Phase 1 accumulator needs explicit monotonicity and duplicate-suppression rules or the overlap path becomes noisy immediately.
+- Carrying an `EmittedAt` timestamp on replay chunks is useful even before a full metrics subsystem exists, because it gives a straightforward end-to-end latency measurement point.
+
+### What was tricky to build
+
+The trickiest part was deciding what the replay source should emit. For the future streaming path, raw PCM frames would be the cleanest transport payload, but the current Phase 1 chunk API accepts WAV uploads. I resolved that by making the replay source emit temporary WAV chunk files now while keeping the chunk metadata transport-neutral enough (`SessionID`, `Sequence`, `Start`, `Duration`, `EmittedAt`) that the same source model can later feed a PCM/WebSocket sender abstraction.
+
+The second tricky part was overlap handling in the accumulator. Phase 1 is still based on chunk-local final outputs, so the dedupe logic is necessarily heuristic. I kept it deliberately simple and explicit: reject empty words, reject words that end before the last committed finalization time, and reject near-identical words with very close timing.
+
+### What warrants a second pair of eyes
+
+- Whether the replay source should eventually emit PCM frames directly and have the chunk API path wrap them only as an adapter
+- Whether the current duplicate-suppression tolerances are too aggressive or too conservative on real transcripts with overlap
+- Whether `transcribe live` should start supporting non-console sinks in the next phase, or keep those deferred until transcript-state semantics are richer
+
+### What should be done in the future
+
+- Run an actual end-to-end `transcribe live` replay against a real WAV input in `tmux`
+- Add a replay-based validation fixture or scripted harness for deterministic comparisons
+- Evolve the runner/transport abstraction so the replay source can later feed the WebSocket client directly
+
+### Code review instructions
+
+Start here:
+
+- `/home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/replay_source.go`
+- `/home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/runner.go`
+- `/home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/accumulator.go`
+- `/home/manuel/code/wesen/2026-04-13--transcription-go/cmd/transcribe/live.go`
+- `/home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/replay_source_test.go`
+- `/home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/accumulator_test.go`
+
+Validation commands:
+
+```bash
+cd /home/manuel/code/wesen/2026-04-13--transcription-go
+
+gofmt -w cmd/transcribe/live.go internal/live/*.go
+go test ./... -count=1
+go run ./cmd/transcribe live --help
+```
+
+### Technical details
+
+The replay source currently works as:
+
+```text
+input wav
+  -> pure-Go conversion to 16k mono wav
+  -> replay source slices fixed-duration overlapping chunks
+  -> each chunk written as temp wav
+  -> chunk uploaded to POST /transcribe/chunk
+  -> chunk words fed to Phase 1 accumulator
+  -> newly committed words printed to console
+```
+
+Current live-specific flags:
+
+- `--input`
+- `--chunk-duration`
+- `--overlap-seconds`
+- `--replay-speed`
+- `--session-id`
+- `--live-format`
