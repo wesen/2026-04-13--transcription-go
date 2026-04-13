@@ -91,14 +91,26 @@ RelatedFiles:
       Note: Step 9 real persisted-output validation artifact inspected during live replay
     - Path: out-live-e2e/transcript.srt
       Note: Step 9 real persisted-output validation artifact inspected during live replay
+    - Path: out-live-ws-clip-000-015-fix/transcript.db
+      Note: Step 16 corrected short WS smoke validation with proper end time
     - Path: out-live-ws-clip-000-015/live-summary.json
       Note: Step 15 successful 15s replay-driven WS smoke run metrics
+    - Path: out-live-ws-clip-000-120-fix/live-summary.json
+      Note: Step 16 corrected 120s WS metrics used for comparison evidence
+    - Path: out-live-ws-clip-000-120-fix/transcript.db
+      Note: Step 16 corrected 120s WS transcript DB used for batch/chunk comparison
     - Path: server/live_decoder.py
-      Note: Step 14 buffered per-session decoder used by the initial WS transport
+      Note: |-
+        Step 14 buffered per-session decoder used by the initial WS transport
+        Step 16 fix for pts-anchored WS timestamping over overlapped replay chunks
     - Path: server/live_sessions.py
-      Note: Step 14 server-side live session registry and cleanup policy
+      Note: |-
+        Step 14 server-side live session registry and cleanup policy
+        Step 16 session path now passes pts into the buffered decoder
     - Path: server/live_sessions_test.py
-      Note: Step 14 lightweight Python tests for session and decoder invariants
+      Note: |-
+        Step 14 lightweight Python tests for session and decoder invariants
+        Step 16 Python tests cover pts-anchored buffered decoding
     - Path: server/requirements.txt
       Note: Step 6 Python pin alignment to reduce resolver backtracking (commit 180dfdae073da2ba9469062b5ca0efcf45b7fbd4)
     - Path: server/server.py
@@ -124,6 +136,7 @@ LastUpdated: 2026-04-13T00:00:00Z
 WhatFor: Record the design investigation so future engineers can understand how the recommendation was derived.
 WhenToUse: Use when continuing or reviewing the live transcription design work.
 ---
+
 
 
 
@@ -1968,3 +1981,116 @@ go run ./cmd/transcribe live   -i /tmp/transcription-live-clip-000-015.wav   -o 
   - `max_server_processing_ms=1020`
   - `average_end_to_end_ms=2843.75`
   - `max_end_to_end_ms=3734`
+
+
+## Step 16: Fix WS timestamp anchoring and validate the corrected 120s comparison
+
+Once the first 120-second WS replay finished, it exposed a real correctness bug: the transcript word timestamps extended out to `133.12s` on a 120-second clip. That turned out not to be an ASR issue but a transport/session accounting issue: the buffered WS decoder was advancing its timeline by cumulative buffered duration and ignoring the replay chunk’s absolute `pts`, so each overlapped chunk effectively added its overlap twice.
+
+I fixed that by anchoring each buffered decoder span to the incoming audio `pts`. After that change, a short 15-second WS rerun showed the DB ending at `15.02s`, and a corrected 120-second WS rerun ended at `120.12s` with a much tighter comparison against batch: `318` words vs `323` (`-5`). That is a much stronger result than the earlier HTTP chunk live run on the same clip (`302` vs `323`, `-21`).
+
+### Prompt Context
+
+**User prompt (verbatim):** (same as Step 15)
+
+**Assistant interpretation:** Continue the live-streaming work by validating the new WS path on longer replay inputs and fix any transport/session correctness problems that show up.
+
+**Inferred user intent:** Use the new WS path seriously enough to expose real issues, then fix those issues rather than stopping at superficial smoke tests.
+
+**Commit (code):** 8e2e4fc — "Fix WS timestamp anchoring for overlapped replay chunks"
+
+### What I did
+- Investigated the first 120s WS comparison and found:
+  - `max_end=133.12s` on a 120s clip
+  - root cause: WS buffered decode spans were using cumulative duration instead of incoming `pts`
+- Updated:
+  - `server/live_decoder.py`
+  - `server/live_sessions.py`
+  - `server/live_sessions_test.py`
+- Changed the WS buffered decoder so:
+  - each buffered span remembers its starting `pts`
+  - partial/final decode timestamps use that `pts` anchor
+  - finalized duration tracks the maximum finalized end time rather than cumulative overlap-additive duration
+- Revalidated with:
+
+```bash
+cd /home/manuel/code/wesen/2026-04-13--transcription-go
+python3 -m unittest discover -s server -p '*_test.py'
+python3 -m py_compile server/server.py server/live_decoder.py server/live_sessions.py
+```
+
+- Ran a corrected 15s WS smoke replay in tmux:
+  - session: `live-ws-smoke-15s-fix`
+  - output dir: `out-live-ws-clip-000-015-fix`
+- Verified corrected 15s DB coverage:
+  - `max_end=15.02s`
+- Ran a corrected 120s WS replay in tmux:
+  - session: `live-ws-clip-120s-fix`
+  - output dir: `out-live-ws-clip-000-120-fix`
+- Compared corrected WS 120s output against:
+  - `out-batch-clip-000-120/transcript.db`
+  - `out-live-clip-000-120/transcript.db`
+
+### Why
+- The first WS transport path was only useful if its timestamps were actually reliable.
+- Because replay chunks intentionally overlap, cumulative-duration timestamping was guaranteed to drift; the decoder needed to honor absolute `pts` to stay correct.
+- Without this fix, any WS-vs-batch comparison would be misleading on timing alone.
+
+### What worked
+- The root cause was straightforward once the `133.12s` coverage number was compared against the 120s input duration.
+- Anchoring decode spans to `pts` fixed the drift immediately on the 15s validation run.
+- The corrected 120s WS result came out much tighter than the HTTP chunk-live result.
+
+### What didn't work
+- The first 120s WS run produced incorrect coverage because overlap was effectively double-counted at the decoder timeline layer.
+- I did not preserve that run as a “good” baseline; instead I replaced it with the corrected `out-live-ws-clip-000-120-fix/` run.
+
+### What I learned
+- For replay-driven WS work, `pts` is not just metadata; it is the timeline authority.
+- Even with a buffered decoder, we can preserve correct transcript timing as long as the session layer respects absolute timing anchors.
+- The WS path is already outperforming the earlier HTTP chunk-live path on the same 120s clip in terms of word-count parity with batch.
+
+### What was tricky to build
+- The main subtlety was distinguishing two meanings of “progress”: cumulative finalized duration vs absolute timeline position. In overlapped replay, those are not the same thing. The decoder originally treated them as the same, which is why overlap inflated the apparent coverage. The fix was to keep absolute buffered-span start PTS separate from the tracked finalized end time.
+
+### What warrants a second pair of eyes
+- Whether the current `pts` anchoring rule is still sufficient once we move from per-chunk WS flushes to more continuous multi-frame buffered spans
+- Whether the current WS accumulator semantics need any refinement when partial previews become denser or more revision-heavy
+- Whether the corrected 120s WS output should now become the primary Phase 3 comparison baseline
+
+### What should be done in the future
+- Prefer the corrected `out-live-ws-clip-000-120-fix/` run over the earlier broken WS run for any future reporting
+- Compare the corrected WS transcript against batch at the actual word-diff level if we need to inspect the remaining `-5`
+- Continue moving WS toward more continuous decoding/finalization once this chunk-paced transport baseline is considered stable enough
+
+### Code review instructions
+- Start with:
+  - `/home/manuel/code/wesen/2026-04-13--transcription-go/server/live_decoder.py`
+  - `/home/manuel/code/wesen/2026-04-13--transcription-go/server/live_sessions.py`
+  - `/home/manuel/code/wesen/2026-04-13--transcription-go/server/live_sessions_test.py`
+  - `/home/manuel/code/wesen/2026-04-13--transcription-go/out-live-ws-clip-000-120-fix/live-summary.json`
+  - `/home/manuel/code/wesen/2026-04-13--transcription-go/out-live-ws-clip-000-120-fix/transcript.db`
+- Validate with:
+
+```bash
+cd /home/manuel/code/wesen/2026-04-13--transcription-go
+python3 -m unittest discover -s server -p '*_test.py'
+python3 -m py_compile server/server.py server/live_decoder.py server/live_sessions.py
+
+python3 ./ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/01-compare_transcript_dbs.py   --live-db out-live-ws-clip-000-120-fix/transcript.db   --reference-db out-batch-clip-000-120/transcript.db   --summary-json out-live-ws-clip-000-120-fix/live-summary.json
+```
+
+### Technical details
+- Broken initial 120s WS run:
+  - words: `350`
+  - `max_end=133.12s`
+- Corrected 15s WS run:
+  - words: `23`
+  - `max_end=15.02s`
+- Corrected 120s WS run:
+  - words: `318`
+  - `max_end=120.12s`
+  - batch words: `323`
+  - delta vs batch: `-5`
+  - earlier HTTP chunk-live words: `302`
+  - delta vs earlier HTTP chunk-live: `+16`

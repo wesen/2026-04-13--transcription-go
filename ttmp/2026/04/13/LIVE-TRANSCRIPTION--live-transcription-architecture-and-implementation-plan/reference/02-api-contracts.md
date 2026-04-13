@@ -36,8 +36,14 @@ RelatedFiles:
       Note: Current Go WS event handling reflected in the API contract
     - Path: out-live-ws-clip-000-015/live-summary.json
       Note: WS smoke-run evidence referenced by the API contract
+    - Path: out-live-ws-clip-000-120-fix/live-summary.json
+      Note: Corrected 120s WS validation evidence referenced in the API contract
+    - Path: out-live-ws-clip-000-120-fix/transcript.db
+      Note: Corrected 120s WS timestamp/word-count comparison evidence referenced in the API contract
     - Path: server/live_decoder.py
-      Note: Current buffered WS decoder behavior and constraints reflected in the API contract
+      Note: |-
+        Current buffered WS decoder behavior and constraints reflected in the API contract
+        Current WS decoder pts-anchoring behavior reflected in the API contract
     - Path: server/live_sessions.py
       Note: Current WS session registry and structured error behavior reflected in the API contract
     - Path: server/server.py
@@ -54,6 +60,7 @@ LastUpdated: 2026-04-13T00:00:00Z
 WhatFor: Give implementers a concrete request/response schema reference for Phase 1 near-live mode and the future session-oriented streaming transport.
 WhenToUse: Use when implementing or reviewing client/server protocol changes for live transcription.
 ---
+
 
 
 
@@ -355,6 +362,7 @@ Current behavior/constraints:
 - replay input chunks now carry both `WAVPath` and raw `PCM16` bytes so they can feed either transport
 - the initial WS sender flushes after each replay chunk and waits for the corresponding finalization before advancing to the next chunk
 - partial WS events update pending preview state, but durable artifacts still only use committed/final words
+- buffered WS decoder spans are now anchored to incoming audio `pts`, so replay chunk overlap does not accumulate into artificial timestamp drift
 - the current WS path is transport-correct and session-oriented, but it intentionally preserves chunk-level pacing/finalization to keep validation and attribution simple while the decoder remains buffered server-side
 
 ### Current WS smoke-run evidence
@@ -374,18 +382,44 @@ go run ./cmd/transcribe live \
 
 Observed artifacts/results:
 
-- output dir: `out-live-ws-clip-000-015/`
-- artifacts: `transcript.db`, `transcript.txt`, `live-summary.json`
-- `live-summary.json`:
+- initial output dir: `out-live-ws-clip-000-015/`
+- corrected output dir after timestamp-anchoring fix: `out-live-ws-clip-000-015-fix/`
+- corrected artifacts: `transcript.db`, `transcript.txt`, `live-summary.json`
+- corrected `transcript.db` coverage:
+  - `min_start=2.24`
+  - `max_end=15.02`
+- corrected `live-summary.json`:
   - `chunks_processed=4`
-  - `committed_words=24`
+  - `committed_words=23`
   - `effective_audio_seconds=15.0`
-  - `average_server_processing_ms=820`
-  - `average_end_to_end_ms=2843.75`
+  - `average_server_processing_ms=852.75`
+  - `average_end_to_end_ms=3233.25`
 - runtime evidence included:
   - `Preview: Welcome back to the Go Golems lab.`
   - `Committed +7 words: Welcome back to the Go Golems lab.`
   - `Processed live chunk transport=ws seq=0 ...`
+
+### Current 120s WS comparison evidence
+
+A corrected 120-second replay-driven WS run completed with:
+
+- output dir: `out-live-ws-clip-000-120-fix/`
+- `transcript.db` coverage: `120.12s`
+- `live-summary.json`:
+  - `chunks_processed=27`
+  - `committed_words=318`
+  - `effective_audio_seconds=120.0`
+  - `average_server_processing_ms=974.148`
+  - `average_end_to_end_ms=3887.852`
+- comparison against the same-pipeline batch baseline:
+  - WS live words: `318`
+  - batch words: `323`
+  - delta: `-5`
+  - coverage delta: `+0.04s`
+- comparison against the earlier HTTP chunk-live run:
+  - WS live words: `318`
+  - HTTP chunk-live words: `302`
+  - delta: `+16`
 
 ---
 

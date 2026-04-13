@@ -354,9 +354,14 @@
     - 15s tmux WS smoke replay completed with persisted artifacts under `out-live-ws-clip-000-015/`
     - `live-summary.json`: `chunks_processed=4`, `committed_words=24`, `effective_audio_seconds=15.0`, `average_server_processing_ms=820`, `average_end_to_end_ms=2843.75`
 
-- [ ] 3.13 Verify word-level timestamp quality in streaming mode
+- [x] 3.13 Verify word-level timestamp quality in streaming mode
   - Confirm final emitted words retain reliable `start` and `end`
   - Compare against batch output quality where possible
+  - Current evidence:
+    - initial 120s WS run exposed timestamp drift to `133.12s` because buffered WS finalization ignored replay chunk `pts`
+    - follow-up fix anchored buffered decode spans to incoming `pts`
+    - corrected 120s WS run ended at `120.12s` vs batch `120.08s`
+    - corrected 120s WS word count: `318` vs batch `323` (`-5`)
 
 ---
 

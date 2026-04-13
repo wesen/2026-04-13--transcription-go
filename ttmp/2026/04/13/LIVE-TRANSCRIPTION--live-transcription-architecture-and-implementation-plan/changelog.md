@@ -191,3 +191,17 @@ Step 15: added the Go WebSocket live transport, including client connect/start/a
 - /home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/replay_source.go — Replay source now exposes raw PCM16 bytes for the WS transport
 - /home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/wsclient_test.go — Lightweight Go WS integration test
 - /home/manuel/code/wesen/2026-04-13--transcription-go/out-live-ws-clip-000-015/live-summary.json — Runtime evidence from a successful 15-second replay-driven WS smoke run
+
+
+## 2026-04-13
+
+Step 16: fixed WS timestamp anchoring so buffered decoder spans use incoming audio `pts` instead of cumulative overlap-additive duration, then validated the corrected 15s and 120s WS replay runs. The corrected 120s WS result reached `318` words vs batch `323` (`-5`) with coverage `120.12s` instead of the earlier broken `133.12s` drift (commit 8e2e4fc).
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-04-13--transcription-go/server/live_decoder.py — Buffered WS decoder now anchors decode spans to incoming `pts`
+- /home/manuel/code/wesen/2026-04-13--transcription-go/server/live_sessions.py — Session append path now passes `pts` into the decoder
+- /home/manuel/code/wesen/2026-04-13--transcription-go/server/live_sessions_test.py — Updated Python tests for `pts`-anchored buffered decoding
+- /home/manuel/code/wesen/2026-04-13--transcription-go/out-live-ws-clip-000-015-fix/transcript.db — Corrected short WS smoke validation with end time near 15s
+- /home/manuel/code/wesen/2026-04-13--transcription-go/out-live-ws-clip-000-120-fix/live-summary.json — Corrected 120s WS metrics used for comparison against batch and HTTP chunk-live
+- /home/manuel/code/wesen/2026-04-13--transcription-go/out-live-ws-clip-000-120-fix/transcript.db — Corrected 120s WS transcript DB used for comparison evidence
