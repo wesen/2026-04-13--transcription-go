@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"dagger.io/dagger"
@@ -41,15 +42,18 @@ func Start(ctx context.Context, opts Options) (*ASRServer, error) {
 
 	serverDir := client.Host().Directory(opts.ServerDir,
 		dagger.HostDirectoryOpts{Exclude: []string{"__pycache__", "*.pyc"}})
+	requirementsFile := client.Host().File(filepath.Join(opts.ServerDir, "requirements.txt"))
+	bootstrapDir := client.Directory().WithFile("requirements.txt", requirementsFile)
 
 	ctr := client.Container().
 		From("python:3.11-slim-bookworm").
 		WithExec([]string{"sh", "-c", "apt-get update && apt-get install -y --no-install-recommends git ffmpeg && rm -rf /var/lib/apt/lists/*"}).
 		WithMountedCache("/root/.cache/huggingface", hfCache).
 		WithMountedCache("/root/.cache/pip", pipCache).
-		WithDirectory("/app", serverDir).
+		WithDirectory("/app", bootstrapDir).
 		WithWorkdir("/app").
 		WithExec([]string{"pip", "install", "-r", "requirements.txt"}).
+		WithDirectory("/app", serverDir).
 		WithExposedPort(opts.Port)
 
 	// IMPORTANT: the long-running process must be configured on AsService.

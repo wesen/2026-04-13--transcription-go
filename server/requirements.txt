@@ -1,9 +1,10 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch==2.11.0
-torchaudio
+torchaudio==2.11.0
 soundfile==0.13.1
 omegaconf==2.3.0
-pytorch-lightning==2.6.1
+pytorch-lightning==2.4.0
+lightning==2.4.0
 fastapi==0.115.12
 uvicorn[standard]==0.34.2
 python-multipart==0.0.20
