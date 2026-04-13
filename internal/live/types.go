@@ -15,11 +15,12 @@ const (
 // update. It is intentionally shaped like the planned WebSocket events so the
 // accumulator can stay stable as the transport evolves.
 type TranscriptEvent struct {
-	Type      TranscriptEventType
-	SessionID string
-	Sequence  int
-	UpToTime  float64
-	Words     []output.Word
+	Type         TranscriptEventType
+	SessionID    string
+	Sequence     int
+	UpToTime     float64
+	Words        []output.Word
+	ProcessingMS int
 }
 
 // TranscriptState is the accumulator snapshot consumed by live sinks.

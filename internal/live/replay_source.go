@@ -2,6 +2,7 @@ package live
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"math"
 	"os"
@@ -94,12 +95,17 @@ func (s *ReplaySource) Run(ctx context.Context, out chan<- AudioChunk) error {
 		if err != nil {
 			return err
 		}
+		pcm16, err := samplesToPCM16(current, bitDepth)
+		if err != nil {
+			return err
+		}
 		chunk := AudioChunk{
 			SessionID: s.cfg.SessionID,
 			Sequence:  sequence,
 			Start:     startSeconds,
 			Duration:  durationSeconds,
 			WAVPath:   chunkPath,
+			PCM16:     pcm16,
 			EmittedAt: time.Now(),
 		}
 		select {
@@ -184,6 +190,17 @@ func writeChunkWAV(dir string, sequence int, samples []int, sampleRate, numChans
 		return "", fmt.Errorf("close chunk wav encoder: %w", err)
 	}
 	return path, nil
+}
+
+func samplesToPCM16(samples []int, bitDepth int) ([]byte, error) {
+	if bitDepth != 16 {
+		return nil, fmt.Errorf("unsupported bit depth for PCM16 export: %d", bitDepth)
+	}
+	out := make([]byte, len(samples)*2)
+	for i, sample := range samples {
+		binary.LittleEndian.PutUint16(out[i*2:], uint16(int16(sample)))
+	}
+	return out, nil
 }
 
 func sleepForReplayStep(ctx context.Context, stepSeconds, replaySpeed float64) error {
