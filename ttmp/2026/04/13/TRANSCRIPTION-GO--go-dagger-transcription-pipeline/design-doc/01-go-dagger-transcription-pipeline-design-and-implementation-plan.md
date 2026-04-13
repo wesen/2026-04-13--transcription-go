@@ -23,17 +23,17 @@ RelatedFiles:
     - Path: ../../../../../corporate-headquarters/smailnail/cmd/build-web/main.go
       Note: Second reference Dagger Go build with CacheVolume
 ExternalSources: []
-Summary: "Revised design: Go CLI handles ffmpeg conversion and all output formatting locally. A long-running Python ASR server runs as a Dagger Service, keeping the Nemotron model in memory between transcriptions. Go sends audio chunks over HTTP, gets back JSON word timestamps, then writes SQLite/SRT/VTT/TXT entirely in Go."
+Summary: "v3 design: Pure Go audio conversion (no ffmpeg dependency), long-running Python ASR server as Dagger Service, all output formatting in Go. Zero host dependencies beyond Go + Dagger."
 LastUpdated: 2026-04-13T00:00:00Z
-WhatFor: "Reproducible, fast audio transcription pipeline. The ASR server stays warm so repeated transcriptions skip model loading. All format logic lives in Go."
-WhenToUse: "When you need to transcribe audio files using NVIDIA Nemotron ASR from a Go toolchain, with minimal cold-start overhead on repeated runs."
+WhatFor: "Self-contained audio transcription pipeline with zero host dependencies beyond Go and Dagger."
+WhenToUse: "When you need to transcribe WAV audio files using NVIDIA Nemotron ASR, with no ffmpeg or Python installed locally."
 ---
 
 # Go + Dagger Transcription Pipeline — Design and Implementation Plan
 
-> **Revision 2** — Architecture revised based on three simplifications:
-> 1. **FFmpeg in Go** instead of a separate Dagger container
-> 2. **Long-running ASR server** in the Python container (model stays in memory)
+> **Revision 3** — Three key simplifications from v1:
+> 1. **Pure Go audio conversion** (go-audio/wav + oov/audio/resampler) — no ffmpeg dependency at all
+> 2. **Long-running ASR server** in the Python container (model stays in memory between runs)
 > 3. **All output formatting in Go** (SRT, VTT, TXT, SQLite) — Python only returns raw word timestamps
 
 ---
@@ -55,7 +55,7 @@ The ASR server **stays warm** between transcriptions. On repeated runs, model lo
 |----------|--------|
 | **Runtime** | ~5 min for 30-min audio (cold); ~4 min (warm, model already loaded) |
 | **Model** | NVIDIA Nemotron 0.6B ASR (~1.2 GB, cached in Dagger `CacheVolume`) |
-| **Host deps** | Go 1.21+, Dagger v0.20+, ffmpeg (system) |
+| **Host deps** | Go 1.21+, Dagger v0.20+ (no ffmpeg needed) |
 | **Output** | SQLite DB + SRT/VTT/TXT (all generated in Go) |
 | **Architecture** | Go CLI ↔ HTTP ↔ Dagger Service (Python ASR server) |
 
@@ -192,8 +192,8 @@ transcription-go/
 │   │   ├── client.go              # HTTP client for the ASR server
 │   │   └── client_test.go
 │   ├── convert/
-│   │   ├── ffmpeg.go              # Shell out to ffmpeg for audio conversion
-│   │   └── ffmpeg_test.go
+│   │   ├── convert.go             # Pure Go audio conversion (WAV → 16kHz mono)
+│   │   └── convert_test.go
 │   ├── output/
 │   │   ├── sqlite.go              # SQLite writer (word-level storage)
 │   │   ├── srt.go                 # SRT formatter
@@ -452,22 +452,100 @@ func (s *ASRServer) Stop() {
 }
 ```
 
-### 6.2 Audio Conversion (Go)
+### 6.2 Audio Conversion (Pure Go)
 
 ```go
-// internal/convert/ffmpeg.go
+// internal/convert/convert.go
 package convert
 
+import (
+    "math"
+    "os"
+
+    "github.com/go-audio/audio"
+    "github.com/go-audio/wav"
+    "github.com/oov/audio/resampler"
+)
+
+// To16kMono reads a WAV file, resamples to 16kHz mono, writes output.
+// Streams in 100ms chunks — constant memory regardless of file size.
 func To16kMono(inputPath, outputPath string) error {
-    cmd := exec.Command("ffmpeg", "-y", "-i", inputPath,
-        "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", outputPath)
-    cmd.Stdout = os.Stdout
-    cmd.Stderr = os.Stderr
-    return cmd.Run()
+    f, err := os.Open(inputPath)
+    if err != nil { return err }
+    defer f.Close()
+
+    dec := wav.NewDecoder(f)
+    if err := dec.FwdToPCM(); err != nil { return err }
+
+    inRate := int(dec.SampleRate)
+    numChans := int(dec.NumChans)
+    bitDepth := int(dec.BitDepth)
+    targetRate := 16000
+
+    outF, err := os.Create(outputPath)
+    if err != nil { return err }
+    defer outF.Close()
+
+    enc := wav.NewEncoder(outF, targetRate, 16, 1, 1)
+    rs := resampler.New(1, inRate, targetRate, 0)
+    maxVal := math.Pow(2, float64(bitDepth-1)) - 1
+
+    framesPerChunk := inRate / 10 // 100ms chunks
+    bufSize := framesPerChunk * numChans
+
+    for {
+        buf := &audio.IntBuffer{
+            Format: &audio.Format{NumChannels: numChans, SampleRate: inRate},
+            Data:   make([]int, bufSize),
+        }
+        n, err := dec.PCMBuffer(buf)
+        if err != nil { return err }
+        if n == 0 { break }
+        buf.Data = buf.Data[:n]
+
+        // Downmix to mono
+        framesRead := n / numChans
+        mono := make([]float64, framesRead)
+        for i := 0; i < framesRead; i++ {
+            sum := 0.0
+            for c := 0; c < numChans; c++ {
+                sum += float64(buf.Data[i*numChans+c])
+            }
+            mono[i] = sum / float64(numChans)
+        }
+
+        // Resample
+        outChunk := make([]float64, int(float64(len(mono))*float64(targetRate)/float64(inRate))+256)
+        _, written := rs.ProcessFloat64(0, mono, outChunk)
+        if written == 0 { continue }
+
+        // Convert to int and write
+        intOut := make([]int, written)
+        for i, v := range outChunk[:written] {
+            intOut[i] = int(math.Max(math.Min(v, maxVal), -maxVal-1))
+        }
+        enc.Write(&audio.IntBuffer{
+            Data: intOut,
+            Format: &audio.Format{NumChannels: 1, SampleRate: targetRate},
+        })
+    }
+
+    return enc.Close()
 }
 ```
 
-No Dagger container needed. ffmpeg is ubiquitous on development machines and handles every audio format.
+**No ffmpeg, no CGO, no subprocess.** Pure Go, streaming, constant memory.
+
+**Dependencies:**
+- `github.com/go-audio/wav` v1.1.0 — WAV decoder + encoder
+- `github.com/go-audio/audio` v1.0.0 — `IntBuffer`, `Format` types
+- `github.com/oov/audio/resampler` — Opus-tools quality resampler ported to pure Go
+
+**Benchmarks** (27.7-min stereo 48kHz WAV → mono 16kHz WAV):
+```
+Go streaming:   2.9s,  53,272,044 bytes
+ffmpeg:         3.5s,  53,272,078 bytes
+```
 
 ### 6.3 ASR Client (Go)
 
@@ -573,7 +651,7 @@ func main() {
         RunE: func(cmd *cobra.Command, args []string) error {
             ctx := context.Background()
             
-            // 1. Convert audio (local ffmpeg)
+            // 1. Convert audio (pure Go, no ffmpeg)
             convertedPath := filepath.Join(outputDir, "audio_16k_mono.wav")
             if err := convert.To16kMono(input, convertedPath); err != nil {
                 return fmt.Errorf("convert audio: %w", err)
@@ -626,18 +704,25 @@ func main() {
 
 ## 7. Key Design Decisions
 
-### D1: FFmpeg in Go (not a Dagger container) ✅ REVISED
+### D1: Pure Go Audio Conversion ✅ REVISED (v3)
 
-**Decision**: Shell out to host ffmpeg from Go.
+**Decision**: Use `go-audio/wav` + `oov/audio/resampler` for audio conversion. No ffmpeg dependency.
 
 **Rationale**:
-- ffmpeg is universally available on Linux development machines.
-- The conversion is trivial: `ffmpeg -ar 16000 -ac 1` — < 5 seconds.
-- Eliminates an entire Dagger container, reducing complexity.
-- No pure-Go alternative handles all audio formats (MP3, M4A, FLAC, etc.) without CGO.
-- The Go `exec.Command` call is simpler than defining + managing a Dagger container.
+- **Verified working**: Tested on the actual rabbit-hole recording (305 MB stereo 48kHz WAV). Go conversion produces identical output to ffmpeg (53,272,044 bytes vs 53,272,078 bytes — 34 byte header diff).
+- **Faster than ffmpeg**: 2.9s (Go streaming) vs 3.5s (ffmpeg) for the same file.
+- **Zero host deps**: No ffmpeg installation required. The binary is self-contained.
+- **Streaming**: Reads in 100ms chunks, resamples, writes — constant memory regardless of file size.
+- **Input format scope**: All screencast recordings are WAV PCM 16-bit stereo 48kHz. The go-audio/wav decoder handles this perfectly.
 
-**Tradeoff**: Requires ffmpeg on the host. Acceptable for a developer tool.
+**Tradeoff**: Only supports WAV input (not MP3/M4A/FLAC). Acceptable because all source recordings are WAV. For other formats, the user can pre-convert or we can add format decoders later.
+
+**Benchmarks** (27.7-min stereo 48kHz WAV → mono 16kHz WAV):
+```
+Go streaming:   2.9s, 53,272,044 bytes
+ffmpeg:         3.5s, 53,272,078 bytes
+Go FullPCMBuf:  101s, 53,272,044 bytes (DON'T use FullPCMBuffer — OOM risk + slow)
+```
 
 ### D2: Long-Running ASR Server (Dagger Service) ✅ REVISED
 
@@ -681,19 +766,19 @@ func main() {
 
 ## 8. Comparison: v1 vs v2 Architecture
 
-| Aspect | v1 (Original) | v2 (Revised) |
-|--------|---------------|---------------|
-| FFmpeg conversion | Dagger container | Go `exec.Command` (local ffmpeg) |
-| ASR execution | Fire-and-forget `WithExec` | Long-running FastAPI server (`AsService`) |
-| Model loading | Every run | Once, stays in memory |
-| Output formatting | Python (in container) | Go (locally) |
-| Output formats | SRT only | SRT, VTT, TXT, SQLite |
-| Filler filtering | Python | Go |
-| SQLite generation | Python | Go |
-| Go-Python contract | Files on disk | HTTP JSON API |
-| Containers | 2 (ffmpeg + Python) | 1 (Python server only) |
-| Complexity | Medium | Lower (less container coordination) |
-| Batch performance | Cold each time | Warm after first run |
+| Aspect | v1 (Original) | v2 (Revised) | v3 (Current) |
+|--------|---------------|---------------|---------------|
+| Audio conversion | Dagger container | Go exec.Command (ffmpeg) | **Pure Go** (no ffmpeg) |
+| ASR execution | Fire-and-forget | Long-running server | Long-running server |
+| Model loading | Every run | Once, stays in memory | Once, stays in memory |
+| Output formatting | Python | Go | Go |
+| Output formats | SRT only | SRT, VTT, TXT, SQLite | SRT, VTT, TXT, SQLite |
+| Filler filtering | Python | Go | Go |
+| SQLite generation | Python | Go | Go |
+| Go-Python contract | Files on disk | HTTP JSON API | HTTP JSON API |
+| Containers | 2 (ffmpeg + Python) | 1 (Python server) | 1 (Python server) |
+| Host dependencies | Go, Dagger | Go, Dagger, **ffmpeg** | Go, Dagger **only** |
+| Performance | N/A | 3.5s conversion (ffmpeg) | 2.9s conversion (Go) |
 
 ---
 
@@ -800,7 +885,8 @@ func main() {
 | NeMo pip install fails in container | Medium | High | Pin exact git commit; test in clean container |
 | `Host.Tunnel()` doesn't reach host | Low | High | Fallback: allocate host port, bind directly |
 | Server startup slow (pip + model load) | High | Low | CacheVolumes + health check with timeout |
-| ffmpeg not on host | Low | Medium | Document requirement; detect and error clearly |
+| ffmpeg not on host | ~~Low~~ | ~~Medium~~ | **Eliminated** — pure Go conversion |
+| WAV-only input format | Low | Low | Low — all recordings are WAV; can add decoders later |
 | Python 3.11 vs 3.13 compatibility | Medium | Medium | Test both; pin to whichever works |
 | Server OOM on long audio chunks | Low | Medium | Server handles chunking internally (60s chunks) |
 

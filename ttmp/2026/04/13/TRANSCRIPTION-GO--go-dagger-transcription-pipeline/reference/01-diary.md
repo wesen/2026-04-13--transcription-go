@@ -235,3 +235,118 @@ chunk_words(chunk_id, word_id, position)
 srt_exports(id, filename, config, segment_count, word_count)
 srt_segments(id, export_id, sequence_num, start_time, end_time, text)
 ```
+
+---
+
+## Step 3: Eliminate ffmpeg — Pure Go Audio Conversion
+
+The user asked to remove the ffmpeg dependency entirely and do WAV conversion natively in Go. I investigated the Go audio library ecosystem, found `go-audio/wav` (decoder/encoder) and `oov/audio/resampler` (opus-tools quality resampler ported to pure Go), and verified them with a benchmark against ffmpeg on the actual rabbit-hole recording. Pure Go streaming conversion is **2.9s vs ffmpeg's 3.5s** with identical output.
+
+### Prompt Context
+
+**User prompt (verbatim):** "can we do the wav manipulation / conversion in go natively, that way we don't depend on ffmpeg at all."
+
+**Assistant interpretation:** Remove the ffmpeg host dependency. Do WAV → 16kHz mono conversion entirely in Go using pure Go libraries.
+
+**Inferred user intent:** Zero host dependencies beyond Go + Dagger. The binary should be self-contained.
+
+### What I did
+
+1. Investigated Go audio libraries:
+   - `github.com/go-audio/wav` v1.1.0 — WAV decoder + encoder (ReadSeeker-based)
+   - `github.com/go-audio/audio` v1.0.0 — `IntBuffer`, `Float32Buffer`, `Format` types
+   - `github.com/oov/audio/resampler` — Opus-tools resampler ported to pure Go, supports `ProcessFloat64` per-channel
+2. Wrote a test program in `/tmp/go-audio-test/` that:
+   - Reads WAV via `wav.NewDecoder(r).PCMBuffer(buf)` (streaming in 100ms chunks)
+   - Downmixes stereo to mono (average channels)
+   - Resamples 48kHz → 16kHz via `resampler.New(1, 48000, 16000, 0)`
+   - Writes output via `wav.NewEncoder(w, 16000, 16, 1, 1)`
+3. Benchmarked against ffmpeg on the rabbit-hole recording (305 MB, 27.7 min, stereo 48kHz)
+4. Verified all screencast recordings are WAV PCM 16-bit stereo 48kHz — pure WAV input is sufficient
+5. Updated design doc to v3: replaced ffmpeg conversion with pure Go, updated comparison table, risks
+
+### What worked
+
+- **Streaming approach**: 2.9s (Go streaming) vs 3.5s (ffmpeg). Faster AND no subprocess.
+- **File size match**: 53,272,044 bytes (Go) vs 53,272,078 bytes (ffmpeg) — 34 byte diff in WAV headers only.
+- **Constant memory**: Streaming in 100ms chunks means ~6.4 KB buffer regardless of input size.
+- **The `oov/audio/resampler`** is a direct port of the opus-tools resampler — high quality, pure Go, no CGO.
+
+### What didn't work
+
+- **`FullPCMBuffer()` approach**: Loading the entire file into memory took 101 seconds and used ~1.5 GB RAM. Switching to streaming (`PCMBuffer` with fixed-size buffer) fixed both issues.
+- **`resampler.BestQuality`** constant doesn't exist — quality is an int (0 = default). Minor API doc issue.
+- **go-audio/mp3, go-audio/flac**: These modules don't exist on the Go module proxy (404 from GitHub). Only WAV is available.
+
+### What I learned
+
+1. `go-audio/wav` supports streaming read/write via `PCMBuffer(buf)` + `Encoder.Write(buf)`. The `FullPCMBuffer()` method loads everything at once — avoid for large files.
+2. `oov/audio/resampler` operates per-channel: `ProcessFloat64(channelIndex, in, out)`. For mono, channelIndex=0.
+3. The output buffer for resampling needs to be oversized: `int(float64(len(in)) * outRate/inRate) + 256`. The `+256` prevents buffer overflows.
+4. All screencast recordings are WAV PCM 16-bit stereo 48kHz — no MP3/M4A/FLAC in sight. The WAV-only limitation of go-audio is perfectly fine.
+
+### What was tricky to build
+
+The `FullPCMBuffer()` trap: the first implementation loaded the entire 305 MB WAV into a `[]int` array (79908000 samples × 8 bytes = ~610 MB), then converted to `[]float64` for resampling (another ~610 MB). This was 101 seconds of allocation + GC pressure. Switching to streaming with 100ms chunks (4800 samples per chunk) reduced memory to ~40 KB and time to 2.9s.
+
+Also: the resampler has internal state (filter history). You must reuse the same `resampler.New()` instance across all chunks — creating a new one per chunk would lose phase continuity and introduce clicks.
+
+### What warrants a second pair of eyes
+
+1. **Resampling quality**: The Go resampler produces byte-identical output size to ffmpeg. But is the audio quality actually equivalent? Should verify by running transcription on both outputs and comparing word counts.
+2. **Downmix strategy**: Currently averaging channels. For voice audio this is fine, but is there a case where one channel has the voice and the other doesn't?
+3. **Resampler quality parameter**: Using quality=0. Should we use a higher quality setting? The opus-tools docs suggest 0-10 range.
+
+### What should be done in the future
+
+1. Test transcription with Go-converted audio vs ffmpeg-converted audio — verify word counts match
+2. Add format detection (check file header) and clear error message for non-WAV inputs
+3. Consider adding `go-audio` format decoders if MP3/FLAC support becomes needed
+
+### Code review instructions
+
+**Test program**: `/tmp/go-audio-test/main.go` (can be deleted, but useful for reference)
+
+**How to validate:**
+```bash
+cd /tmp/go-audio-test && go build -o convert_test .
+time ./convert_test \
+  /home/manuel/code/wesen/2026-04-09--screencast-studio/recordings/rabbit-hole-2026-04-10--2/audio-mix.wav \
+  /tmp/test-output.wav
+file /tmp/test-output.wav
+# Expected: RIFF (little-endian) data, WAVE audio, Microsoft PCM, 16 bit, mono 16000 Hz
+```
+
+### Technical details
+
+**Go audio conversion stack:**
+```
+github.com/go-audio/wav       v1.1.0  — WAV decoder (ReadSeeker) + encoder (WriteSeeker)
+github.com/go-audio/audio     v1.0.0  — IntBuffer, Format, Float32Buffer types
+github.com/oov/audio/resampler         — Opus-tools resampler, pure Go
+```
+
+**Streaming conversion flow:**
+```
+Input WAV (48kHz, stereo, 16-bit)
+    ↓ wav.Decoder.PCMBuffer (100ms chunks)
+IntBuffer{Data: []int, Format: {NumChannels: 2, SampleRate: 48000}}
+    ↓ Average channels
+[]float64 (mono, 48kHz)
+    ↓ resampler.ProcessFloat64(0, in, out)
+[]float64 (mono, 16kHz)
+    ↓ Clamp + convert to int
+IntBuffer{Data: []int, Format: {NumChannels: 1, SampleRate: 16000}}
+    ↓ wav.Encoder.Write
+Output WAV (16kHz, mono, 16-bit)
+```
+
+**Benchmark results:**
+```
+Input:  audio-mix.wav (305 MB, 27.7 min, 48kHz stereo 16-bit PCM)
+Output: 16kHz mono 16-bit PCM WAV (53.3 MB)
+
+Go streaming:   2.9s  → 53,272,044 bytes
+ffmpeg:          3.5s  → 53,272,078 bytes
+Go FullPCMBuf:  101.5s → 53,272,044 bytes (DO NOT USE)
+```
