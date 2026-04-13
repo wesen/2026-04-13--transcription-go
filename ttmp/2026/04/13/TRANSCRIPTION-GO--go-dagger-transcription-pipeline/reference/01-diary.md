@@ -1,5 +1,5 @@
 ---
-Title: "Diary"
+Title: Diary
 Ticket: TRANSCRIPTION-GO
 Status: active
 Topics:
@@ -14,20 +14,29 @@ DocType: reference
 Intent: long-term
 Owners: []
 RelatedFiles:
-    - Path: ../../../../../2026-04-09--screencast-studio/ttmp/2026/04/13/TRANSCRIPT-PIPELINE--setting-up-an-analysis-pipeline-for-transcripts/design-doc/02-dagger-docker-handoff.md
-      Note: Source handoff document with pipeline specs and Python reference
-    - Path: ../../../../../go-go-golems/glazed/cmd/build-web/main.go
-      Note: Reference Dagger Go implementation
-    - Path: ../../../../../corporate-headquarters/smailnail/cmd/build-web/main.go
-      Note: Second Dagger Go reference implementation
-    - Path: /home/manuel/.pi/agent/skills/go-web-dagger-pnpm-build/SKILL.md
+    - Path: ../../../../../../../../../.pi/agent/skills/go-web-dagger-pnpm-build/SKILL.md
       Note: Dagger build pattern skill
+    - Path: cmd/transcribe/main.go
+      Note: Go-side heartbeat logging and chunk estimation for long runs (commit 2202e46)
+    - Path: internal/server/dagger.go
+      Note: Dagger service runtime moved to AsService args; tunnel start/endpoint fix (commit 2202e46)
+    - Path: out/transcript.db
+      Note: Successful rabbit-hole E2E output used for validation (not committed)
+    - Path: server/server.py
+      Note: FastAPI Nemotron ASR service and health/transcribe endpoints used in successful E2E run
+    - Path: ttmp/2026-04-09--screencast-studio/ttmp/2026/04/13/TRANSCRIPT-PIPELINE--setting-up-an-analysis-pipeline-for-transcripts/design-doc/02-dagger-docker-handoff.md
+      Note: Source handoff document with pipeline specs and Python reference
+    - Path: ttmp/corporate-headquarters/smailnail/cmd/build-web/main.go
+      Note: Second Dagger Go reference implementation
+    - Path: ttmp/go-go-golems/glazed/cmd/build-web/main.go
+      Note: Reference Dagger Go implementation
 ExternalSources: []
-Summary: "Investigation diary for the Go + Dagger transcription pipeline ticket."
+Summary: Investigation diary for the Go + Dagger transcription pipeline ticket.
 LastUpdated: 2026-04-13T00:00:00Z
-WhatFor: "Record the investigation and design process for the Go + Dagger transcription pipeline."
-WhenToUse: "When continuing work on the TRANSCRIPTION-GO ticket."
+WhatFor: Record the investigation and design process for the Go + Dagger transcription pipeline.
+WhenToUse: When continuing work on the TRANSCRIPTION-GO ticket.
 ---
+
 
 # Diary
 
@@ -585,3 +594,250 @@ INFO: Uvicorn running on http://0.0.0.0:8000
 ```
 
 The server IS ready. The problem is Dagger's Go SDK not recognizing it.
+
+---
+
+## Step 6: End-to-End Success — Fix Dagger Service Runtime, Start the Tunnel, and Validate Against Reference Output
+
+I resumed the blocked end-to-end work by running the long-lived transcription process inside `tmux` instead of directly in the agent session. That changed the debugging shape materially: it meant I could leave the Dagger/Nemo process alive, inspect it repeatedly, and compare the visible Go logs, tmux pane state, Docker engine logs, and Dagger SDK behavior without killing the job every time I needed to look around.
+
+The final fix turned out not to be “wait longer” but “start the correct object with the correct runtime command.” The Python server was healthy, but the Dagger service definition and host tunnel lifecycle were wrong. Once those were corrected, the full rabbit-hole recording transcribed successfully end to end and produced `4226` words in SQLite/SRT output, versus `4248` in the reference database.
+
+### Prompt Context
+
+**User prompt (verbatim):** "Let's pick up and try to run a dagger run, but somehow it seems to block. Use tmux to run the long running process, that way you can check on its progress without getting stopped yourself."
+
+**Assistant interpretation:** Run the pipeline in a background tmux session, inspect the live Dagger/service behavior externally, and keep iterating until the blocking point is understood and fixed.
+
+**Inferred user intent:** Make the E2E run observable and robust enough to debug to completion instead of repeatedly losing progress to long-running model startup and agent timeouts.
+
+**Commit (code):** `2202e46` — "Fix Dagger service startup and tunnel endpoint handling"
+
+### What I did
+
+- Fixed the Dagger runtime wiring in `internal/server/dagger.go`:
+  - stopped using `WithExec([]string{"uvicorn", ...})` as if it were the runtime service command
+  - moved `uvicorn` into `ctr.AsService(dagger.ContainerAsServiceOpts{Args: ...})`
+  - started the **host tunnel service** with `tunnel.Start(ctx)` before asking for its endpoint
+  - stopped forcing `Endpoint(port: 8000)` on the host tunnel; used `tunnel.Endpoint(ctx)` so Dagger could allocate a random safe frontend port
+- Added better client-side observability in `cmd/transcribe/main.go`:
+  - estimated converted WAV duration and chunk count up front
+  - added a 15-second Go-side heartbeat during long `POST /transcribe/full` waits
+  - improved final completion logging with elapsed wall time and returned chunk count
+- Added `logs/` to `.gitignore` because the tmux-backed runs produce durable local log files worth keeping but not committing
+- Used `tmux` to run the E2E command in the background and inspect progress without interrupting the process:
+
+```bash
+cd /home/manuel/code/wesen/2026-04-13--transcription-go
+SESSION=transcribe-e2e
+LOG=logs/transcribe-e2e-20260413-160029.log
+INPUT="/home/manuel/code/wesen/2026-04-09--screencast-studio/recordings/rabbit-hole-2026-04-10--2/audio-mix.wav"
+
+./transcribe --input "$INPUT" --output-dir ./out/ --format srt,db --no-fillers --verbose
+```
+
+- Repeatedly inspected:
+  - `tmux capture-pane -pt transcribe-e2e:0 | tail -N`
+  - `tail -f logs/transcribe-e2e-*.log`
+  - `docker logs dagger-engine-v0.20.5`
+  - `curl http://127.0.0.1:.../health`
+  - local port occupancy via `ss -ltnp` / `pgrep -af`
+- Validated final output against the reference SQLite DB:
+  - new DB: `4226` words
+  - reference DB: `4248` words
+  - delta: `-22`
+
+### Why
+
+The earlier failure mode was deceptive because several different problems overlapped:
+
+1. the container did start eventually,
+2. uvicorn did load the model,
+3. but the Go-side Dagger object being queried was not the right running host tunnel,
+4. and at one point the host-side forced port `127.0.0.1:8000` collided with an unrelated local Python service, producing misleading `404 Not Found` responses.
+
+Without a background runner, each inspection cycle destroyed the very process I needed to observe. `tmux` turned this from a timeout/churn problem into a state-inspection problem.
+
+### What worked
+
+- `tmux` made the long-lived Dagger/Nemo process inspectable without interruption
+- `AsService(...Args...)` correctly made uvicorn the runtime process for the service
+- `tunnel.Start(ctx)` was the correct thing to start for host accessibility
+- `tunnel.Endpoint(ctx)` returned a safe random endpoint (the successful run used `127.0.0.1:32935`)
+- Health check passed immediately once the tunnel endpoint pointed at the correct service
+- The full rabbit-hole recording transcribed successfully end-to-end
+- Final output files were written successfully:
+  - `out/transcript.srt`
+  - `out/transcript.db`
+- Final observed run summary:
+  - converted duration: `1664.8s`
+  - chunk size: `60s`
+  - output words: `4226`
+  - reference words: `4248`
+  - chunk rows in SQLite: `209`
+  - chunk-word rows in SQLite: `4279`
+
+### What didn't work
+
+Several intermediate ideas failed, but each failure narrowed the actual problem:
+
+1. **`Service.Start()` on the container service appeared to hang forever**
+   - Symptom in Dagger trace:
+   ```
+   Service.start: ServiceID!   [never appears to complete from the Go side]
+   ```
+   - This looked like “the model load is taking too long”, but it was not the full explanation.
+
+2. **Using `WithExec(uvicorn ...)` as if it were the runtime service command was wrong**
+   - Dagger’s generated Go docs explicitly indicate that `AsService` runs the container’s default command or explicit service args.
+   - The `WithExec(...)` chain is part of the build graph, not the service runtime definition.
+
+3. **Starting the service object alone was not enough for host reachability**
+   - Once the runtime command moved into `AsService(...Args...)`, resolving the endpoint on the tunnel still failed with:
+   ```
+   Error: start server: get tunnel endpoint: service sl33bki0aa1sg is not running
+   ```
+   - The missing step was that the **tunnel service** itself had to be started.
+
+4. **Forcing `Endpoint(port: 8000)` on the host side hit a local port collision**
+   - Curling `http://127.0.0.1:8000/health` returned:
+   ```
+   HTTP/1.1 404 Not Found
+   {"detail":"Not Found"}
+   ```
+   - The root cause was not the ASR app; port `8000` was already occupied by another local `python3` process serving an unrelated app:
+   ```
+   LISTEN 0 2048 127.0.0.1:8000 ... users:(("python3",pid=2853627,fd=7))
+   ```
+   - Using the tunnel’s default endpoint fixed this immediately.
+
+### What I learned
+
+- For Dagger Go services, **runtime command placement matters**. `AsService(dagger.ContainerAsServiceOpts{Args: ...})` is the correct place for the long-lived process when the container is being used as a service.
+- There are really **two layers of “service”** here:
+  1. the container-backed service inside Dagger
+  2. the host tunnel service that exposes it locally
+  Starting the wrong one leads to confusing “not running” errors even when the container itself is healthy.
+- For host tunnels, do **not** assume a fixed host port is safe. If the local machine already binds that port, the observed behavior can look like an application routing problem rather than a port collision.
+- The tmux-backed workflow is not just a convenience; it materially changes the debugging method for long-lived local Dagger runs.
+
+### What was tricky to build
+
+The tricky part was that the system failed in stages that each looked plausible in isolation:
+
+- first, `Service.Start()` looked like it was just “taking a long time” because the model genuinely does need time to load
+- then, after moving the command into `AsService`, the service became valid inside Dagger but the tunnel still was not the thing being started
+- then, after starting the tunnel, the host-side health check still looked broken because `127.0.0.1:8000` belonged to a totally different local Python process
+
+So the symptoms appeared to move around: first “hang”, then “service not running”, then “404 health check”. These were not three independent bugs in the app logic; they were three layers of lifecycle/addressing confusion in the Dagger-to-host handoff.
+
+### What warrants a second pair of eyes
+
+1. **Word-count delta**: the successful Go pipeline produced `4226` words vs `4248` in the reference DB. That is small enough to be encouraging but large enough to deserve investigation.
+2. **Chunk semantics**: the current server-side chunking overlaps by 2 seconds (`end = min(start + chunk_size + 2, duration)`). That may create duplication or timing drift in edge cases.
+3. **Client-side upload model**: `internal/asr/client.go` currently buffers the whole multipart request body in memory before sending. It works, but a future streaming multipart writer would be cleaner for very large inputs.
+4. **Progress visibility**: the current Go-side heartbeat is useful, but chunk-level structured progress from the Python server would make long runs easier to monitor and benchmark.
+
+### What should be done in the future
+
+1. Investigate the `-22` word delta against the reference DB
+2. Add explicit chunk-level progress reporting from the server to the Go client, or at least richer per-chunk logs
+3. Consider returning chunk metadata from the server for easier validation/debugging
+4. Consider a local benchmark mode that records chunk timings and total throughput for future regression checks
+
+### Code review instructions
+
+Start with these files:
+
+- `internal/server/dagger.go`
+- `cmd/transcribe/main.go`
+- `internal/asr/client.go`
+- `server/server.py`
+
+Review focus:
+
+1. **Service lifecycle** in `internal/server/dagger.go`
+   - verify that uvicorn is only specified in `AsService(...Args...)`
+   - verify the tunnel, not just the container service, is started
+   - verify endpoint resolution uses the tunnel’s default endpoint rather than forcing host port `8000`
+2. **Long-run observability** in `cmd/transcribe/main.go`
+   - verify duration/chunk estimation is accurate for converted 16kHz mono WAV output
+   - verify the heartbeat cannot leak after request completion
+3. **Validation**
+   - run:
+   ```bash
+   cd /home/manuel/code/wesen/2026-04-13--transcription-go
+   go build -o transcribe ./cmd/transcribe
+   ./transcribe \
+     --input /home/manuel/code/wesen/2026-04-09--screencast-studio/recordings/rabbit-hole-2026-04-10--2/audio-mix.wav \
+     --output-dir ./out/ \
+     --format srt,db \
+     --no-fillers \
+     --verbose
+   ```
+   - expected outcome:
+     - health check succeeds on a random localhost port
+     - transcription completes in ~5 minutes on this machine
+     - `out/transcript.db` contains roughly `4226` words
+
+### Technical details
+
+Key working sequence in `internal/server/dagger.go`:
+
+```go
+ctr := client.Container().
+    From("python:3.11-slim-bookworm").
+    WithExec([]string{"sh", "-c", "apt-get update && apt-get install -y --no-install-recommends git ffmpeg && rm -rf /var/lib/apt/lists/*"}).
+    WithMountedCache("/root/.cache/huggingface", hfCache).
+    WithMountedCache("/root/.cache/pip", pipCache).
+    WithDirectory("/app", serverDir).
+    WithWorkdir("/app").
+    WithExec([]string{"pip", "install", "-r", "requirements.txt"}).
+    WithExposedPort(opts.Port)
+
+service := ctr.AsService(dagger.ContainerAsServiceOpts{Args: []string{
+    "uvicorn", "server:app",
+    "--host", "0.0.0.0",
+    "--port", fmt.Sprintf("%d", opts.Port),
+}})
+
+tunnel := client.Host().Tunnel(service)
+tunnel, err = tunnel.Start(ctx)
+endpoint, err := tunnel.Endpoint(ctx)
+```
+
+Observed successful runtime evidence:
+
+```text
+Tunnel established at 127.0.0.1:32935, waiting for health check...
+Health check passed (attempt 1)
+ASR server ready at 127.0.0.1:32935
+Transcribing: out/audio_16k_mono.wav (chunk size: 60s)
+...
+Transcription complete: 4226 words, 1664.8s
+Written: out/transcript.srt (205 segments)
+Written: out/transcript.db (4226 words)
+Done!
+```
+
+SQLite validation commands used:
+
+```bash
+python3 - <<'PY'
+import sqlite3
+for name, path in [
+    ("reference", "/home/manuel/code/wesen/2026-04-09--screencast-studio/ttmp/2026/04/13/TRANSCRIPT-PIPELINE--setting-up-an-analysis-pipeline-for-transcripts/sources/audio_transcript.db"),
+    ("new", "/home/manuel/code/wesen/2026-04-13--transcription-go/out/transcript.db"),
+]:
+    conn = sqlite3.connect(path)
+    cur = conn.cursor()
+    print(name, cur.execute("select count(*) from words").fetchone()[0])
+PY
+```
+
+Result:
+
+```text
+reference 4248
+new 4226
+```
