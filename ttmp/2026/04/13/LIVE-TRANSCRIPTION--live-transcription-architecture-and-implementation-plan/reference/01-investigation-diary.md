@@ -19,6 +19,7 @@ RelatedFiles:
       Note: |-
         Step 2 live command scaffold (commit 23f88e5d123a9482b0ca39519876eded5788f119)
         Step 5 replay-oriented live CLI flags and runner wiring (commit b5aadd7617d06c596af6d165db58d94e7f26754d)
+        Step 7 output-dir support for live replay (commit 0fc41bf9f2a2664eadbaaa1aed66e6a8f30ffa53)
     - Path: cmd/transcribe/main.go
       Note: Batch CLI flow inspected during live-architecture mapping
     - Path: cmd/transcribe/root.go
@@ -43,8 +44,14 @@ RelatedFiles:
       Note: |-
         Step 2 live runner scaffold (commit 23f88e5d123a9482b0ca39519876eded5788f119)
         Step 5 runnable live chunk loop over replay input (commit b5aadd7617d06c596af6d165db58d94e7f26754d)
+    - Path: internal/live/sinks.go
+      Note: Step 7 live sink construction from requested formats (commit 0fc41bf9f2a2664eadbaaa1aed66e6a8f30ffa53)
     - Path: internal/live/source.go
       Note: Step 2 audio source contract scaffold (commit 23f88e5d123a9482b0ca39519876eded5788f119)
+    - Path: internal/live/sqlite_sink.go
+      Note: Step 7 rolling SQLite artifact sink (commit 0fc41bf9f2a2664eadbaaa1aed66e6a8f30ffa53)
+    - Path: internal/live/subtitle_sink.go
+      Note: Step 7 rolling subtitle/text artifact sink (commit 0fc41bf9f2a2664eadbaaa1aed66e6a8f30ffa53)
     - Path: internal/server/dagger.go
       Note: |-
         Warm Dagger service boundary inspected as live-mode foundation
@@ -71,6 +78,7 @@ LastUpdated: 2026-04-13T00:00:00Z
 WhatFor: Record the design investigation so future engineers can understand how the recommendation was derived.
 WhenToUse: Use when continuing or reviewing the live transcription design work.
 ---
+
 
 
 
@@ -852,3 +860,118 @@ This is also why the fix had two parts instead of one:
 
 - **graph fix** — make the Dagger `pip install` layer depend on `requirements.txt`, not the entire mutable server tree
 - **pin fix** — align the Python dependency versions so pip has a simpler, less contradictory solve to perform when it really does need to run again
+
+## Step 7: Add rolling live output sinks and output-directory support
+
+With the replay runner and chunk loop working, the next weakness was obvious: the live path could only print transcript updates to the console. That was useful for initial debugging, but not enough for comparing near-live behavior with the existing batch pipeline. To make the live mode reviewable and measurable, I added output sinks so committed transcript state can now be written to the same family of artifacts the batch mode already produces.
+
+This step does not yet introduce richer partial/final semantics; it still works from the Phase 1 committed transcript state. But it makes the live path much more practical because it can now leave behind SRT/VTT/TXT/SQLite artifacts under a configurable output directory.
+
+### Prompt Context
+
+**User prompt (verbatim):** (same as Step 2)
+
+**Assistant interpretation:** Continue iterating on the live-transcription implementation by making the current replay-driven pipeline more usable and easier to validate.
+
+**Inferred user intent:** Move from “it prints some live words” toward a near-live mode that produces durable artifacts suitable for comparison, inspection, and future testing.
+
+**Commit (code):** 0fc41bf9f2a2664eadbaaa1aed66e6a8f30ffa53 — "Add live transcript output sinks and output-dir support"
+
+### What I did
+
+- Added `--output-dir` to `transcribe live` and defaulted it to `./out-live`.
+- Added `internal/live/sinks.go` to build live sinks from the requested `--live-format` list.
+- Updated `internal/live/console_sink.go` so it implements the shared sink interface.
+- Added `internal/live/subtitle_sink.go`:
+  - rewrites `transcript.srt`, `transcript.vtt`, or `transcript.txt` from committed words.
+- Added `internal/live/sqlite_sink.go`:
+  - rewrites `transcript.db` from committed words.
+- Updated `internal/live/runner.go` so after each chunk it now:
+  - updates the accumulator,
+  - pushes committed transcript state through all requested sinks.
+- Added tests:
+  - `internal/live/subtitle_sink_test.go`
+  - `internal/live/sqlite_sink_test.go`
+- Ran:
+  - `gofmt -w cmd/transcribe/live.go internal/live/*.go`
+  - `go test ./... -count=1`
+  - `go run ./cmd/transcribe live --help`
+
+### Why
+
+The live path needs artifacts, not just logs. Without persisted outputs, it is difficult to:
+
+- compare live vs batch behavior,
+- inspect transcript quality later,
+- integrate future validation scripts,
+- reuse the current work for ticket evidence.
+
+### What worked
+
+- The live CLI now has an explicit output directory.
+- The live runner can persist the committed transcript state to the same kinds of formats the batch path uses.
+- The sink tests passed, and the full Go test suite still passed.
+- The sink structure also creates a cleaner extension point for future partial/final-aware output behavior.
+
+### What didn't work
+
+- N/A as a build/test failure in this step.
+- One implementation tradeoff is deliberate: both subtitle and SQLite sinks currently rewrite full artifacts from committed state, rather than performing a more incremental append/update strategy.
+
+### What I learned
+
+- Even before Phase 2 transcript semantics are implemented, the sink abstraction already improves the architecture because it separates “how transcript state is accumulated” from “how transcript state is rendered/persisted”.
+- Rewriting whole artifacts per chunk is acceptable for Phase 1 and much simpler than trying to optimize persistence too early.
+
+### What was tricky to build
+
+The tricky design question was whether to make the sinks truly incremental or to regenerate outputs from the committed transcript state after each chunk. For Phase 1, regeneration is the safer choice because it avoids subtle state drift between the accumulator and the rendered artifacts. Once richer partial/final semantics exist, more efficient incremental update strategies can be considered.
+
+### What warrants a second pair of eyes
+
+- Whether rewriting the full SQLite database after each chunk is acceptable for the expected Phase 1 workload
+- Whether the live subtitle segmentation should later diverge from the batch segmentation rules once partial/final semantics are introduced
+- Whether `--live-format` should continue to accept `console` mixed with file outputs, or whether a more explicit sink configuration would be clearer long term
+
+### What should be done in the future
+
+- Validate the new sink behavior in a real `tmux` live replay run using `--output-dir`
+- Add a replay-comparison workflow that inspects the generated `transcript.db` and subtitle/text artifacts against a batch baseline
+- Introduce latency metrics and summary output next so live runs are easier to characterize quantitatively
+
+### Code review instructions
+
+Start here:
+
+- `/home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/sinks.go`
+- `/home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/subtitle_sink.go`
+- `/home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/sqlite_sink.go`
+- `/home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/runner.go`
+- `/home/manuel/code/wesen/2026-04-13--transcription-go/cmd/transcribe/live.go`
+
+Validation commands:
+
+```bash
+cd /home/manuel/code/wesen/2026-04-13--transcription-go
+
+gofmt -w cmd/transcribe/live.go internal/live/*.go
+go test ./... -count=1
+go run ./cmd/transcribe live --help
+```
+
+### Technical details
+
+Current supported live output formats:
+
+- `console`
+- `srt`
+- `vtt`
+- `txt`
+- `db`
+
+Current behavior:
+
+- sinks are driven from committed words only
+- subtitle/text sinks rebuild transcript artifacts from committed words
+- the SQLite sink rebuilds `transcript.db` from committed words
+- all file outputs are written under `--output-dir`

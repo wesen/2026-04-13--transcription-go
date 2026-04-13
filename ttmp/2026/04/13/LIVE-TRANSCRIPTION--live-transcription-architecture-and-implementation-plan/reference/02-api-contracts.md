@@ -22,6 +22,8 @@ RelatedFiles:
       Note: Contract tests for multipart full/chunk uploads
     - Path: internal/live/replay_source.go
       Note: Phase 1 simulated live source now uses replayed WAV input rather than directory watching
+    - Path: internal/live/sinks.go
+      Note: Phase 1 live runner can now persist committed transcript outputs to console/text/subtitle/sqlite artifacts
     - Path: server/server.py
       Note: Implemented FastAPI batch/chunk endpoints and shared helper flow
     - Path: ttmp/internal/asr/client.go
@@ -34,6 +36,7 @@ LastUpdated: 2026-04-13T00:00:00Z
 WhatFor: Give implementers a concrete request/response schema reference for Phase 1 near-live mode and the future session-oriented streaming transport.
 WhenToUse: Use when implementing or reviewing client/server protocol changes for live transcription.
 ---
+
 
 
 
@@ -142,6 +145,13 @@ POST /transcribe/chunk
 - The Python server normalizes the uploaded audio chunk to `16kHz mono PCM16 WAV` before inference.
 - The Go client preserves the exact metadata fields above.
 - FastAPI form fields must be declared with `Form(...)` when sent alongside file uploads.
+- The current Phase 1 live runner can now persist committed transcript state to:
+  - console output,
+  - `transcript.srt`,
+  - `transcript.vtt`,
+  - `transcript.txt`,
+  - `transcript.db`
+  under the configured live `--output-dir`.
 
 ---
 

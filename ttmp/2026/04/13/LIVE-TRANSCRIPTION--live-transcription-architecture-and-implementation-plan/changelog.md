@@ -87,3 +87,14 @@ Clarified in the diary why Python resolver backtracking appeared during live wor
 
 - /home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/reference/01-investigation-diary.md — Added explicit explanation of the cache-vs-resolution behavior
 
+
+## 2026-04-13
+
+Step 7: added rolling live output sinks for SRT/VTT/TXT/SQLite plus --output-dir support, so the replay-driven live path now persists committed transcript state instead of only logging to console (commit 0fc41bf9f2a2664eadbaaa1aed66e6a8f30ffa53).
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-04-13--transcription-go/cmd/transcribe/live.go — Live output-dir CLI flag
+- /home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/sqlite_sink.go — Live SQLite artifact generation
+- /home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/subtitle_sink.go — Live subtitle/text artifact generation
+

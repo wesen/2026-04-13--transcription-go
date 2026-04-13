@@ -140,14 +140,14 @@
   - Files:
     - `internal/live/console_sink.go`
 
-- [ ] 1.13 Implement rolling subtitle sink
+- [x] 1.13 Implement rolling subtitle sink
   - Emit committed transcript into rolling SRT/VTT-friendly segments
   - Do not finalize subtitle text from non-final words
   - Files:
     - `internal/live/subtitle_sink.go`
     - maybe `internal/output/format.go`
 
-- [ ] 1.14 Implement optional live SQLite sink
+- [x] 1.14 Implement optional live SQLite sink
   - Persist only committed words
   - Decide whether pending words stay in memory only for Phase 1
   - Files:
