@@ -36,6 +36,10 @@ RelatedFiles:
       Note: Step 5 overlap-deduplication tests (commit b5aadd7617d06c596af6d165db58d94e7f26754d)
     - Path: internal/live/console_sink.go
       Note: Step 5 incremental committed-word console output (commit b5aadd7617d06c596af6d165db58d94e7f26754d)
+    - Path: internal/live/metrics.go
+      Note: Step 8 live replay metrics collection and summary artifact (commit 6560072a7d7c567ba3e0408d9a0a99494a21eeaf)
+    - Path: internal/live/metrics_test.go
+      Note: Step 8 metrics summary tests (commit 6560072a7d7c567ba3e0408d9a0a99494a21eeaf)
     - Path: internal/live/replay_source.go
       Note: Step 5 WAV-backed simulated live source (commit b5aadd7617d06c596af6d165db58d94e7f26754d)
     - Path: internal/live/replay_source_test.go
@@ -78,6 +82,7 @@ LastUpdated: 2026-04-13T00:00:00Z
 WhatFor: Record the design investigation so future engineers can understand how the recommendation was derived.
 WhenToUse: Use when continuing or reviewing the live transcription design work.
 ---
+
 
 
 
@@ -975,3 +980,112 @@ Current behavior:
 - subtitle/text sinks rebuild transcript artifacts from committed words
 - the SQLite sink rebuilds `transcript.db` from committed words
 - all file outputs are written under `--output-dir`
+
+## Step 8: Add latency/throughput metrics and a live summary artifact
+
+Once the live runner could produce durable transcript artifacts, the next missing piece was quantitative measurement. Console logs showed per-chunk timings, but there was no structured summary of how a whole replay run performed. That made it harder to compare runs, spot regressions, or include concise evidence in the ticket. To fix that, I added a small metrics collector and a `live-summary.json` artifact written into the live output directory at the end of a run.
+
+This is still Phase 1 telemetry rather than a full metrics subsystem, but it closes an important gap: the near-live runner now produces both transcript artifacts and a machine-readable performance summary.
+
+### Prompt Context
+
+**User prompt (verbatim):** (same as Step 2)
+
+**Assistant interpretation:** Keep iterating on the live implementation so it becomes easier to validate and compare, not just easier to run.
+
+**Inferred user intent:** Have the live path emit enough structured evidence that performance and behavior can be reviewed later without re-reading raw logs.
+
+**Commit (code):** 6560072a7d7c567ba3e0408d9a0a99494a21eeaf — "Add live replay metrics and summary artifact"
+
+### What I did
+
+- Added `internal/live/metrics.go` with:
+  - `MetricsCollector`
+  - `MetricsSummary`
+  - `WriteMetricsSummary(...)`
+- Added `internal/live/metrics_test.go`.
+- Updated `internal/live/runner.go` so it now:
+  - tracks chunk-level server processing time,
+  - tracks chunk-level end-to-end latency,
+  - tracks effective audio coverage,
+  - writes `live-summary.json` at the end of the run,
+  - logs average server latency, average end-to-end latency, and throughput in audio-seconds-per-wall-second.
+- Ran:
+  - `gofmt -w internal/live/*.go`
+  - `go test ./... -count=1`
+
+### Why
+
+Phase 1 live replay needed a structured summary so we can answer basic questions like:
+
+- how many chunks were processed,
+- how many words were committed,
+- what the average chunk server latency was,
+- what the average end-to-end latency was,
+- how fast the system was relative to real time.
+
+Without that, each run would require manual log inspection.
+
+### What worked
+
+- The runner now emits a summary artifact suitable for future comparison scripts or ticket evidence.
+- The metrics structure is simple and testable.
+- The full Go test suite still passed after the runner changes.
+
+### What didn't work
+
+- N/A as a compile/test issue in this step.
+- One deliberate simplification remains: the throughput estimate uses effective audio coverage (`max chunk end`) rather than attempting to model overlap-adjusted semantic progress more deeply.
+
+### What I learned
+
+- Even a small summary artifact improves the usefulness of long-running replay tests a lot.
+- Capturing metrics at the runner layer is a good Phase 1 choice because it is transport-adjacent without being coupled to the Python server internals.
+
+### What was tricky to build
+
+The main design choice was deciding what “throughput” should mean in a replay system with overlapping chunks. Summing raw chunk durations would overcount overlap, so the metrics collector instead tracks the maximum covered audio time (`chunk.Start + chunk.Duration`) across the session. That gives a better approximation of effective progress through the source audio.
+
+### What warrants a second pair of eyes
+
+- Whether the current throughput metric is the right default for later performance dashboards
+- Whether chunk-level metrics should eventually be persisted in a more detailed per-chunk JSONL or SQLite metrics table
+- Whether summary emission should happen only at the end of a run or also periodically during long replays
+
+### What should be done in the future
+
+- Run a fresh live replay with the new output sinks and metrics enabled together
+- Use `live-summary.json` and `transcript.db` as the basis for the first near-live vs batch comparison notes
+- Consider adding per-chunk metrics output if detailed offline analysis becomes necessary
+
+### Code review instructions
+
+Start here:
+
+- `/home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/metrics.go`
+- `/home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/runner.go`
+- `/home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/metrics_test.go`
+
+Validation commands:
+
+```bash
+cd /home/manuel/code/wesen/2026-04-13--transcription-go
+
+gofmt -w internal/live/*.go
+go test ./... -count=1
+```
+
+### Technical details
+
+The current `live-summary.json` contains fields for:
+
+- `session_id`
+- `chunks_processed`
+- `committed_words`
+- `effective_audio_seconds`
+- `elapsed_seconds`
+- `audio_seconds_per_wall_second`
+- `average_server_processing_ms`
+- `max_server_processing_ms`
+- `average_end_to_end_ms`
+- `max_end_to_end_ms`

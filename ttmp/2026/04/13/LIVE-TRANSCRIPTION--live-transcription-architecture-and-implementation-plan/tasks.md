@@ -186,7 +186,7 @@
     - `ttmp/.../scripts/` or repo test fixtures dir
     - `internal/live/testdata/`
 
-- [ ] 1.18 Measure near-live latency
+- [x] 1.18 Measure near-live latency
   - Capture:
     - chunk creation time
     - request send time

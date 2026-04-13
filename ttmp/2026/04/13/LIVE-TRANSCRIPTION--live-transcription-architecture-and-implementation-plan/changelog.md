@@ -98,3 +98,13 @@ Step 7: added rolling live output sinks for SRT/VTT/TXT/SQLite plus --output-dir
 - /home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/sqlite_sink.go — Live SQLite artifact generation
 - /home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/subtitle_sink.go — Live subtitle/text artifact generation
 
+
+## 2026-04-13
+
+Step 8: added live replay metrics collection and a live-summary.json artifact with chunk count, committed words, average latency, and throughput fields (commit 6560072a7d7c567ba3e0408d9a0a99494a21eeaf).
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/metrics.go — Replay metrics summary implementation
+- /home/manuel/code/wesen/2026-04-13--transcription-go/internal/live/runner.go — Runner now writes metrics summary at completion
+
