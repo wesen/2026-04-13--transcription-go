@@ -74,6 +74,8 @@ RelatedFiles:
         Step 3 chunk API and Form-based multipart contract (commit d14a887adafe235d1a6ebbd4e519f8e479252cbd)
     - Path: ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/compare_transcript_dbs.py
       Note: Step 10 partial live-vs-reference comparison helper
+    - Path: ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/extract_wav_segment.py
+      Note: Step 11 clipped-WAV fast-iteration helper
     - Path: ttmp/cmd/transcribe/main.go
       Note: Current batch CLI flow inspected while designing live-mode coexistence
     - Path: ttmp/internal/asr/client.go
@@ -88,6 +90,7 @@ LastUpdated: 2026-04-13T00:00:00Z
 WhatFor: Record the design investigation so future engineers can understand how the recommendation was derived.
 WhenToUse: Use when continuing or reviewing the live transcription design work.
 ---
+
 
 
 
@@ -1340,3 +1343,152 @@ Observed partial comparison snapshot:
 - delta coverage: `-1146.88s`
 
 Interpretation: the live replay DB was valid and structurally comparable, but the run was still partial at the time of inspection.
+
+## Step 11: Record the completed full-run replay results and establish a fast 120s subset workflow
+
+At this point the long live replay run has completed, so the ticket finally has a real end-to-end result rather than an in-progress snapshot. I recorded the final full-run metrics and compared the completed `out-live-e2e/transcript.db` against the earlier reference transcript database. Then, following the user’s suggestion to iterate on smaller subsets for speed, I added a tiny PCM-WAV slicing helper and used it to create a 120-second clip for a much faster live-vs-batch comparison loop.
+
+The important outcome is that the short-clip workflow already gives a clearer debugging target. The full run finished with a larger gap (`-403` words vs the older reference DB), while the 120s same-pipeline comparison only showed a `-21` word delta (`302` live vs `323` batch). That strongly suggests the smaller-subset workflow is the right way to investigate the remaining live-path loss and overlap/finalization behavior.
+
+### Prompt Context
+
+**User prompt (verbatim):** "ok, do it. And you can maybe use smaller subsets of the wav so that we can be faster in our iteration."
+
+**Assistant interpretation:** Record the completed full-run results in the ticket and adopt a shorter clipped-WAV workflow so future live-vs-batch investigations iterate much faster.
+
+**Inferred user intent:** Preserve the current results, but shift the debugging loop onto smaller reproducible clips so we can improve the live path without repeatedly paying the cost of a full 27-minute run.
+
+**Commit (code):** f130b2488c2956413a8619015a876f195eaa5e4a — "Tools: add WAV segment extraction helper for fast iteration"
+
+### What I did
+
+- Confirmed the persisted full live replay had completed:
+  - `out-live-e2e/transcript.db`
+  - `out-live-e2e/transcript.srt`
+  - `out-live-e2e/live-summary.json`
+- Ran the completed live-vs-reference DB comparison:
+  - live words: `3845`
+  - reference words: `4248`
+  - delta: `-403`
+  - live coverage: `1656.14s`
+  - reference coverage: `1656.0s`
+- Added a ticket-local WAV slicing helper:
+  - `ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/extract_wav_segment.py`
+- Used it to create a 120s clip:
+  - `/tmp/transcription-live-clip-000-120.wav`
+- Ran a short batch baseline on that clip:
+  - output dir: `out-batch-clip-000-120`
+  - final word count: `323`
+- Ran a short live replay on that same clip:
+  - output dir: `out-live-clip-000-120`
+  - final committed word count: `302`
+  - `live-summary.json` throughput: `3.714x`
+- Compared the short live clip against the short batch clip:
+  - live words: `302`
+  - batch words: `323`
+  - delta: `-21`
+
+### Why
+
+The full run is necessary as a milestone, but it is too expensive for the main debugging loop. A small deterministic clip is a much better target for overlap/finalization investigation because:
+
+- startup cost dominates less,
+- turnaround is short,
+- comparisons are still meaningful,
+- regressions are easier to isolate.
+
+### What worked
+
+- The full run completed successfully and produced final metrics/artifacts.
+- The 120s slicing helper worked immediately and produced a valid 22MB WAV clip.
+- The short batch run completed quickly and gave a clean same-pipeline reference (`323` words).
+- The short live run also completed quickly and produced a much smaller delta (`-21`) than the full-run comparison.
+
+### What didn't work
+
+- The first shell command after writing the slicing helper repeated an earlier mistake: I used the wrong relative path when trying to `chmod` and execute the script.
+- I fixed that immediately by locating the file and rerunning the command with the correct repo-relative path.
+
+### What I learned
+
+- The long-form live replay is now good enough to produce a full transcript, but it is not the right vehicle for day-to-day debugging.
+- The 120s same-pipeline comparison is much more actionable than the full-run comparison against the older reference DB because it isolates the current live-vs-batch behavior under the same codebase and model path.
+- The smaller delta on the 120s clip suggests the remaining gap is likely tied to chunk-boundary/accumulator behavior rather than a catastrophic failure of the overall live architecture.
+
+### What was tricky to build
+
+The main subtlety here was choosing the right comparison baseline. The earlier full reference DB is still useful, but it is not the cleanest debugging target because it comes from an older pipeline context. The short clipped-WAV workflow is better because both sides of the comparison are generated by the current codebase under controlled conditions. That makes the resulting delta much more interpretable.
+
+### What warrants a second pair of eyes
+
+- Whether the 120s opening clip is the best representative debugging segment, or whether a later/more difficult portion of the recording would expose overlap issues more clearly
+- Whether the current `5s` chunk duration is the right default for investigation, or whether we should compare `5s` vs `10s` chunk behavior next
+- Whether the `-21` delta is mostly due to dedupe heuristics, chunk overlap, or server-side chunk segmentation behavior
+
+### What should be done in the future
+
+- Keep the 120s subset workflow as the default fast iteration loop
+- Add one or two additional clipped segments from different parts of the recording if needed
+- Investigate the `-21` subset delta next before doing more long full-run experiments
+
+### Code review instructions
+
+Start here:
+
+- `/home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/extract_wav_segment.py`
+- `/home/manuel/code/wesen/2026-04-13--transcription-go/out-batch-clip-000-120/transcript.db`
+- `/home/manuel/code/wesen/2026-04-13--transcription-go/out-live-clip-000-120/transcript.db`
+- `/home/manuel/code/wesen/2026-04-13--transcription-go/out-live-e2e/live-summary.json`
+
+Validation commands:
+
+```bash
+cd /home/manuel/code/wesen/2026-04-13--transcription-go
+
+python3 ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/extract_wav_segment.py \
+  --input /home/manuel/code/wesen/2026-04-09--screencast-studio/recordings/rabbit-hole-2026-04-10--2/audio-mix.wav \
+  --output /tmp/transcription-live-clip-000-120.wav \
+  --start 0 \
+  --duration 120
+
+go run ./cmd/transcribe batch \
+  -i /tmp/transcription-live-clip-000-120.wav \
+  -o ./out-batch-clip-000-120 \
+  -f db,txt \
+  --chunk-size 60
+
+go run ./cmd/transcribe live \
+  -i /tmp/transcription-live-clip-000-120.wav \
+  -o ./out-live-clip-000-120 \
+  --live-format console,db,txt \
+  --chunk-duration 5 \
+  --overlap-seconds 0.5 \
+  --replay-speed 0
+
+python3 ./ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/compare_transcript_dbs.py \
+  --live-db out-live-clip-000-120/transcript.db \
+  --reference-db out-batch-clip-000-120/transcript.db \
+  --summary-json out-live-clip-000-120/live-summary.json
+```
+
+### Technical details
+
+Completed full-run result:
+
+- live words: `3845`
+- reference words: `4248`
+- delta: `-403`
+- live chunks: `352`
+- reference chunks: `196`
+- coverage delta: `+0.14s`
+- throughput: `2.64x`
+
+Fast 120s subset result:
+
+- batch words: `323`
+- live words: `302`
+- delta: `-21`
+- live chunks processed: `27`
+- live throughput: `3.714x`
+- average live server processing: `1166.815ms`
+- average live end-to-end latency: `2353.444ms`

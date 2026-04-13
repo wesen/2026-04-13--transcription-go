@@ -128,3 +128,12 @@ Step 10: added a ticket-local transcript DB comparison script and used it for th
 
 - /home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/compare_transcript_dbs.py — Reusable live-vs-reference SQLite comparison helper
 
+
+## 2026-04-13
+
+Step 11: recorded the completed full-run live replay results (3845 vs 4248 words, delta -403) and established a fast 120s clipped-WAV iteration workflow, which yielded a much smaller same-pipeline live-vs-batch delta of -21 words (302 vs 323).
+
+### Related Files
+
+- /home/manuel/code/wesen/2026-04-13--transcription-go/ttmp/2026/04/13/LIVE-TRANSCRIPTION--live-transcription-architecture-and-implementation-plan/scripts/extract_wav_segment.py — Fast iteration helper for clipped WAV subsets
+

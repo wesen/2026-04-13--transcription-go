@@ -179,7 +179,7 @@
 
 ### 1F. Phase 1 validation
 
-- [ ] 1.17 Create replay-based validation fixtures
+- [x] 1.17 Create replay-based validation fixtures
   - Use prerecorded WAV inputs and deterministic frame/chunk slicing for simulated live tests
   - Prefer a single WAV replay flow over directory-driven chunk fixtures
   - Files:
@@ -200,6 +200,9 @@
   - Confirm word counts and transcript quality are within acceptable range
   - Validate overlap logic does not cause runaway duplication
   - Output to ticket docs
+  - Current evidence:
+    - full 27.7m live replay vs older reference DB: `3845` vs `4248` words (`-403`)
+    - fast 120s subset live replay vs same-pipeline batch DB: `302` vs `323` words (`-21`)
 
 ---
 
