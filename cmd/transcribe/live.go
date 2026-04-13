@@ -10,6 +10,7 @@ import (
 
 type liveOptions struct {
 	inputPath      string
+	outputDir      string
 	sessionID      string
 	chunkDuration  float64
 	overlapSeconds float64
@@ -21,6 +22,7 @@ type liveOptions struct {
 
 func defaultLiveOptions() liveOptions {
 	return liveOptions{
+		outputDir:     "./out-live",
 		chunkDuration: 2.0,
 		replaySpeed:   1.0,
 		formats:       "console",
@@ -30,6 +32,7 @@ func defaultLiveOptions() liveOptions {
 
 func addLiveFlags(cmd *cobra.Command, opts *liveOptions) {
 	cmd.Flags().StringVarP(&opts.inputPath, "input", "i", opts.inputPath, "Input WAV file to replay as a simulated live source")
+	cmd.Flags().StringVarP(&opts.outputDir, "output-dir", "o", opts.outputDir, "Output directory for live transcript artifacts")
 	cmd.Flags().StringVar(&opts.sessionID, "session-id", opts.sessionID, "Stable session identifier for the live transcription run")
 	cmd.Flags().Float64Var(&opts.chunkDuration, "chunk-duration", opts.chunkDuration, "Replay chunk duration in seconds")
 	cmd.Flags().Float64Var(&opts.overlapSeconds, "overlap-seconds", opts.overlapSeconds, "Expected chunk overlap in seconds")
@@ -48,6 +51,7 @@ func runLive(ctx context.Context, opts liveOptions) error {
 	runner := live.NewRunner(live.RunnerConfig{
 		ServerDir:      resolvedServerDir,
 		InputPath:      opts.inputPath,
+		OutputDir:      opts.outputDir,
 		SessionID:      opts.sessionID,
 		ChunkDuration:  opts.chunkDuration,
 		OverlapSeconds: opts.overlapSeconds,

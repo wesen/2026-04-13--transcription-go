@@ -20,6 +20,7 @@ import (
 type RunnerConfig struct {
 	ServerDir      string
 	InputPath      string
+	OutputDir      string
 	SessionID      string
 	ChunkDuration  float64
 	OverlapSeconds float64
@@ -51,6 +52,9 @@ func (r *LiveRunner) Run(ctx context.Context) error {
 	if r.Config.ChunkDuration <= 0 {
 		return fmt.Errorf("chunk duration must be > 0")
 	}
+	if err := ensureOutputDir(r.Config.OutputDir); err != nil {
+		return fmt.Errorf("create live output dir: %w", err)
+	}
 
 	sessionID := r.Config.SessionID
 	if strings.TrimSpace(sessionID) == "" {
@@ -77,6 +81,11 @@ func (r *LiveRunner) Run(ctx context.Context) error {
 	defer svc.Stop()
 	log.Printf("ASR server ready at %s", svc.Endpoint())
 
+	sinks, err := buildSinks(r.Config.OutputDir, r.Config.Formats)
+	if err != nil {
+		return err
+	}
+
 	client := asr.NewClient(svc.Endpoint())
 	source := NewReplaySource(ReplaySourceConfig{
 		InputPath:      convertedPath,
@@ -86,7 +95,6 @@ func (r *LiveRunner) Run(ctx context.Context) error {
 		OverlapSeconds: r.Config.OverlapSeconds,
 		ReplaySpeed:    r.Config.ReplaySpeed,
 	})
-	consoleSink := NewConsoleSink()
 
 	chunks := make(chan AudioChunk)
 	sourceErrCh := make(chan error, 1)
@@ -117,7 +125,11 @@ func (r *LiveRunner) Run(ctx context.Context) error {
 			return fmt.Errorf("accumulate chunk %d: %w", chunk.Sequence, err)
 		}
 		committed := r.Accumulator.CommittedWords()
-		consoleSink.WriteCommitted(committed)
+		for _, sink := range sinks {
+			if err := sink.Update(committed); err != nil {
+				return fmt.Errorf("update sink after chunk %d: %w", chunk.Sequence, err)
+			}
+		}
 		latency := time.Since(chunk.EmittedAt).Round(time.Millisecond)
 		log.Printf(
 			"Processed live chunk seq=%d start=%.3fs duration=%.3fs server_words=%d committed_total=%d committed_added=%d processing_ms=%d end_to_end=%s",
@@ -137,18 +149,8 @@ func (r *LiveRunner) Run(ctx context.Context) error {
 	}
 
 	committed := r.Accumulator.CommittedWords()
-	log.Printf("Live replay complete: session=%s chunks_processed=%d committed_words=%d elapsed=%s", sessionID, processedChunks, len(committed), time.Since(started).Round(time.Second))
-	warnUnsupportedLiveFormats(r.Config.Formats)
+	log.Printf("Live replay complete: session=%s chunks_processed=%d committed_words=%d output_dir=%s elapsed=%s", sessionID, processedChunks, len(committed), r.Config.OutputDir, time.Since(started).Round(time.Second))
 	return nil
-}
-
-func warnUnsupportedLiveFormats(formats []string) {
-	for _, format := range formats {
-		if format == "" || format == "console" {
-			continue
-		}
-		log.Printf("Live format %q requested but not implemented yet; console output only for now", format)
-	}
 }
 
 func ParseFormats(raw string) []string {

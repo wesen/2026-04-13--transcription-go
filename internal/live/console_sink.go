@@ -16,9 +16,9 @@ func NewConsoleSink() *ConsoleSink {
 	return &ConsoleSink{}
 }
 
-func (s *ConsoleSink) WriteCommitted(words []output.Word) {
+func (s *ConsoleSink) Update(words []output.Word) error {
 	if len(words) <= s.printed {
-		return
+		return nil
 	}
 	newWords := words[s.printed:]
 	parts := make([]string, 0, len(newWords))
@@ -27,4 +27,5 @@ func (s *ConsoleSink) WriteCommitted(words []output.Word) {
 	}
 	log.Printf("Committed +%d words: %s", len(newWords), strings.Join(parts, " "))
 	s.printed = len(words)
+	return nil
 }
