@@ -19,3 +19,8 @@ Revised architecture (v2): ffmpeg in Go, long-running ASR server via Dagger Serv
 
 v3: Eliminated ffmpeg dependency. Pure Go audio conversion (go-audio/wav + oov/audio/resampler). Benchmarked: 2.9s Go vs 3.5s ffmpeg on rabbit-hole recording. Zero host deps beyond Go + Dagger.
 
+
+## 2026-04-13
+
+Implemented full pipeline (tasks 1-7, 9). 16 source files, 10/10 tests passing. Commit 840a847. Remaining: end-to-end test.
+
