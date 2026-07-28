@@ -140,7 +140,10 @@ func writeBatchOutputs(words []output.Word, outputDir, formats string, noFillers
 			if err != nil {
 				return err
 			}
-			output.WriteSRT(w, segments)
+			if err := output.WriteSRT(w, segments); err != nil {
+				w.Close()
+				return fmt.Errorf("write srt: %w", err)
+			}
 			w.Close()
 			log.Printf("Written: %s (%d segments)", path, len(segments))
 
@@ -155,7 +158,10 @@ func writeBatchOutputs(words []output.Word, outputDir, formats string, noFillers
 			if err != nil {
 				return err
 			}
-			output.WriteVTT(w, segments)
+			if err := output.WriteVTT(w, segments); err != nil {
+				w.Close()
+				return fmt.Errorf("write vtt: %w", err)
+			}
 			w.Close()
 			log.Printf("Written: %s (%d segments)", path, len(segments))
 
@@ -170,7 +176,10 @@ func writeBatchOutputs(words []output.Word, outputDir, formats string, noFillers
 			if err != nil {
 				return err
 			}
-			output.WriteTXT(w, segments)
+			if err := output.WriteTXT(w, segments); err != nil {
+				w.Close()
+				return fmt.Errorf("write txt: %w", err)
+			}
 			w.Close()
 			log.Printf("Written: %s", path)
 

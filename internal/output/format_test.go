@@ -2,9 +2,75 @@ package output
 
 import (
 	"bytes"
+	"database/sql"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	_ "modernc.org/sqlite"
 )
+
+func TestBuildSegmentsTrailingBufferHasNonZeroEnd(t *testing.T) {
+	words := []Word{
+		{Word: "Hello", Start: 0, End: 0.5},
+		{Word: "world.", Start: 0.5, End: 1.0},
+		{Word: "No", Start: 1.5, End: 1.8},
+		{Word: "terminator", Start: 1.8, End: 2.3},
+	}
+
+	segments := BuildSegments(words, 15.0, 120)
+	if len(segments) < 2 {
+		t.Fatalf("expected at least 2 segments, got %d", len(segments))
+	}
+	last := segments[len(segments)-1]
+	if last.End == 0 {
+		t.Errorf("trailing segment end is zero; want last word end %.3f, got 0", words[len(words)-1].End)
+	}
+	if last.End != words[len(words)-1].End {
+		t.Errorf("trailing segment end = %.3f, want %.3f", last.End, words[len(words)-1].End)
+	}
+}
+
+func TestWriteSQLiteChunkWordCount(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	words := []Word{
+		{Word: "Hello", Start: 0, End: 0.5},
+		{Word: "world.", Start: 0.5, End: 1.0},
+		{Word: "Another", Start: 1.5, End: 1.8},
+		{Word: "sentence.", Start: 1.8, End: 2.3},
+	}
+
+	if err := WriteSQLite(words, dbPath); err != nil {
+		t.Fatalf("WriteSQLite failed: %v", err)
+	}
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	var zeroCountChunks int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM chunks WHERE word_count = 0`).Scan(&zeroCountChunks); err != nil {
+		t.Fatal(err)
+	}
+	if zeroCountChunks != 0 {
+		t.Errorf("found %d chunks with word_count=0; expected every chunk to link real words", zeroCountChunks)
+	}
+
+	var unmatchedLinks int
+	if err := db.QueryRow(`
+		SELECT COUNT(*) FROM chunks c
+		WHERE c.word_count != (SELECT COUNT(*) FROM chunk_words cw WHERE cw.chunk_id = c.id)
+	`).Scan(&unmatchedLinks); err != nil {
+		t.Fatal(err)
+	}
+	if unmatchedLinks != 0 {
+		t.Errorf("found %d chunks whose word_count does not match linked chunk_words rows", unmatchedLinks)
+	}
+}
 
 func TestFilterFillers(t *testing.T) {
 	words := []Word{

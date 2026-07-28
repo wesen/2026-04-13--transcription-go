@@ -3,6 +3,7 @@ package output
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 
 	_ "modernc.org/sqlite"
 )
@@ -106,7 +107,7 @@ func createChunks(tx *sql.Tx, words []Word) error {
 		}
 		chunkID, _ := res.LastInsertId()
 
-		// Find words in this time range and link them
+		// Find words in this time range and link them in order.
 		rows, err := tx.Query(
 			`SELECT id FROM words WHERE start_time >= ? AND end_time <= ? ORDER BY start_time`,
 			seg.Start-0.01, seg.End+0.01,
@@ -121,26 +122,32 @@ func createChunks(tx *sql.Tx, words []Word) error {
 				rows.Close()
 				return err
 			}
-			tx.Exec(`INSERT INTO chunk_words (chunk_id, word_id, position) VALUES (?, ?, ?)`, chunkID, wordID, pos)
-			tx.Exec(`UPDATE words SET chunk_id = ? WHERE id = ?`, chunkID, wordID)
+			if _, err := tx.Exec(`INSERT INTO chunk_words (chunk_id, word_id, position) VALUES (?, ?, ?)`, chunkID, wordID, pos); err != nil {
+				rows.Close()
+				return err
+			}
+			if _, err := tx.Exec(`UPDATE words SET chunk_id = ? WHERE id = ?`, chunkID, wordID); err != nil {
+				rows.Close()
+				return err
+			}
 			pos++
 		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
 		rows.Close()
+
+		// Correct the chunk word_count to the actual number of linked words,
+		// rather than the whitespace-split length of the joined text.
+		if _, err := tx.Exec(`UPDATE chunks SET word_count = ? WHERE id = ?`, pos, chunkID); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
+// splitWords splits a string on whitespace and returns the non-empty tokens.
 func splitWords(s string) []string {
-	// Simple whitespace split
-	result := []string{}
-	for _, w := range split(s) {
-		if w != "" {
-			result = append(result, w)
-		}
-	}
-	return result
-}
-
-func split(s string) []string {
-	return []string{} // placeholder — the text is already joined words
+	return strings.Fields(s)
 }

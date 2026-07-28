@@ -59,9 +59,10 @@ func BuildSegments(words []Word, maxDuration float64, maxChars int) []Segment {
 	}
 
 	if len(current) > 0 {
+		lastWord := words[len(words)-1]
 		segments = append(segments, Segment{
 			Start: segStart,
-			End:   0, // will be set by last word
+			End:   lastWord.End,
 			Text:  strings.Join(current, " "),
 		})
 	}
