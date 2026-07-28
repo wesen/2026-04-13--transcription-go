@@ -237,3 +237,58 @@ After the user explicitly requested no subagents and asked whether I would perfo
 
 ### Code review instructions
 - Confirm `git status` contains only intended ticket changes.
+
+## Step 4: Validate, commit, and publish the design bundle
+
+The repository's complete Go test suite passed without source changes, docmgr reported no ticket problems, and the documentation diff passed Git whitespace validation. The complete ticket bundle was then rendered and uploaded to the ticket-specific reMarkable directory.
+
+The ticket remains active because product implementation has not begun. The documentation and contracts are complete enough to guide implementation, but this step does not claim that the proposed `transcribe corpus` commands exist yet.
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 2)
+
+**Assistant interpretation:** Validate and publish the requested intern-facing documentation after completing the direct analysis.
+
+**Inferred user intent:** Make the design both reviewable in Git and available as an offline reMarkable handoff.
+
+**Commit (docs):** f289174a6402b4ef8e7a7b028165ca1075ee601d — "Document video corpus transcription architecture"
+
+### What I did
+- Ran `go test ./... -count=1`; all packages passed.
+- Ran `docmgr doctor --ticket VIDEO-CORPUS-PIPELINE --stale-after 30`; all checks passed.
+- Ran `git diff --check` before committing.
+- Committed the analysis, guide, contracts, playbook, diary, index, tasks, and changelog.
+- Uploaded the six-document bundle with reMarkable ToC depth 2.
+
+### Why
+- Tests verify the existing baseline remains healthy even though this phase changes documentation only.
+- Docmgr validation catches broken metadata and related-file references.
+- The reMarkable bundle provides the requested intern reading copy while Git remains the editable source.
+
+### What worked
+- All Go tests passed.
+- Docmgr reported `✅ All checks passed`.
+- Upload returned: `OK: uploaded Video Corpus Transcription Intern Guide.pdf -> /ai/2026/07/28/VIDEO-CORPUS-PIPELINE`.
+
+### What didn't work
+- N/A for validation and upload.
+
+### What I learned
+- The documentation renders as one coherent bundle when ordered index, analysis, design, API contract, playbook, and diary.
+
+### What was tricky to build
+- The playbook describes a future command surface. It is clearly labeled as proposed so operators do not attempt commands before implementation.
+
+### What warrants a second pair of eyes
+- Inspect Mermaid diagrams and wide SQL/code blocks on the reMarkable display for readability.
+- Review the schema and interface contracts before implementation freezes them.
+
+### What should be done in the future
+- Begin Phase 0 correctness fixes and tests in this worktree.
+- Update the guide and playbook whenever implemented flags or schema details diverge from the proposal.
+
+### Code review instructions
+- Review commits `9f31f7e` and `f289174`.
+- Run `go test ./... -count=1` and `docmgr doctor --ticket VIDEO-CORPUS-PIPELINE --stale-after 30`.
+- Start implementation from the main guide's Phase 0 and the reference contract's required invariants.
