@@ -21,6 +21,16 @@ topics:
       description: Audio to text transcription
     - slug: streaming
       description: Streaming protocols, incremental audio ingestion, and real-time transcript delivery
+    - slug: video
+      description: Video files, metadata, and media processing
+    - slug: sqlite
+      description: SQLite persistence and queryable transcript storage
+    - slug: pipeline
+      description: Multi-stage ingestion and processing pipelines
+    - slug: corpus
+      description: Multi-document or multi-video searchable corpora
+    - slug: playlist
+      description: Ordered video playlist acquisition and processing
 docTypes:
     - slug: design-doc
       description: Structured rationale and architecture notes
