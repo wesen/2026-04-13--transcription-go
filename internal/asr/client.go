@@ -2,7 +2,6 @@
 package asr
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -138,34 +137,54 @@ func (c *Client) uploadAudio(ctx context.Context, endpointPath, audioPath string
 	}
 	defer f.Close()
 
-	var buf bytes.Buffer
-	writer := multipart.NewWriter(&buf)
+	// Stream the multipart body through an io.Pipe so the entire WAV file is
+	// never held in memory at once. The HTTP request body reads from the pipe
+	// while a goroutine writes the multipart form data.
+	pr, pw := io.Pipe()
+	writer := multipart.NewWriter(pw)
 
-	part, err := writer.CreateFormFile("file", filepath.Base(audioPath))
-	if err != nil {
-		return nil, fmt.Errorf("create form file: %w", err)
-	}
-	if _, err := io.Copy(part, f); err != nil {
-		return nil, fmt.Errorf("copy audio to form: %w", err)
-	}
-	if writeFields != nil {
-		if err := writeFields(writer); err != nil {
-			return nil, fmt.Errorf("write form fields: %w", err)
+	go func() {
+		var writeErr error
+		defer func() {
+			if writeErr != nil {
+				pw.CloseWithError(writeErr)
+			} else {
+				pw.Close()
+			}
+		}()
+
+		part, err := writer.CreateFormFile("file", filepath.Base(audioPath))
+		if err != nil {
+			writeErr = fmt.Errorf("create form file: %w", err)
+			return
 		}
-	}
-	if err := writer.Close(); err != nil {
-		return nil, fmt.Errorf("close multipart writer: %w", err)
-	}
+		if _, err := io.Copy(part, f); err != nil {
+			writeErr = fmt.Errorf("copy audio to form: %w", err)
+			return
+		}
+		if writeFields != nil {
+			if err := writeFields(writer); err != nil {
+				writeErr = fmt.Errorf("write form fields: %w", err)
+				return
+			}
+		}
+		if err := writer.Close(); err != nil {
+			writeErr = fmt.Errorf("close multipart writer: %w", err)
+			return
+		}
+	}()
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		fmt.Sprintf("http://%s%s", c.endpoint, endpointPath), &buf)
+		fmt.Sprintf("http://%s%s", c.endpoint, endpointPath), pr)
 	if err != nil {
+		pw.Close()
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", writer.FormDataContentType())
 
 	resp, err := c.client.Do(httpReq)
 	if err != nil {
+		pw.Close()
 		return nil, fmt.Errorf("send request: %w", err)
 	}
 	return resp, nil
