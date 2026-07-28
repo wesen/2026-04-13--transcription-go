@@ -23,3 +23,8 @@ Validated all Go tests and ticket metadata, then uploaded Video Corpus Transcrip
 
 - /home/manuel/worktrees/2026-07-28--transcription-go-video-pipeline/ttmp/2026/07/28/VIDEO-CORPUS-PIPELINE--adapt-transcription-go-for-playlist-video-corpus-pipelines/reference/02-investigation-diary.md — Validation and publication evidence
 
+
+## 2026-07-28
+
+Added implementation-phase tasks; the design deliverable is complete but the active ticket remains open for product work.
+
