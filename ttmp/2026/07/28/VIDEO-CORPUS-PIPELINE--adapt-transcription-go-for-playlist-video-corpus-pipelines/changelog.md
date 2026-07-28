@@ -28,3 +28,14 @@ Validated all Go tests and ticket metadata, then uploaded Video Corpus Transcrip
 
 Added implementation-phase tasks; the design deliverable is complete but the active ticket remains open for product work.
 
+
+## 2026-07-28
+
+Implemented corpus pipeline end to end: Phase 0 fixes, internal/corpus package, transcribe corpus CLI, manifest converter, and validated with Southwell video 019 (467 words, 24 chunks, resume verified).
+
+### Related Files
+
+- cmd/transcribe/corpus.go — Corpus command group
+- internal/corpus/store.go — Atomic commit and resume planner
+- scripts/convert_media_manifest.py — Manifest converter
+

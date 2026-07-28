@@ -292,3 +292,98 @@ The ticket remains active because product implementation has not begun. The docu
 - Review commits `9f31f7e` and `f289174`.
 - Run `go test ./... -count=1` and `docmgr doctor --ticket VIDEO-CORPUS-PIPELINE --stale-after 30`.
 - Start implementation from the main guide's Phase 0 and the reference contract's required invariants.
+
+## Step 5: Implement the corpus pipeline and validate with one video
+
+The design was implemented end to end and validated with Southwell video 019 (RZPeFGg84Ng). The implementation covers Phase 0 correctness fixes, the full corpus package (manifest, fingerprint, store, runner, transcriber, export, search), the `transcribe corpus` command group, a manifest converter script, and a normalized manifest for the 37-entry Southwell corpus.
+
+### Prompt Context
+
+**User prompt (verbatim):** "Implement as far as you can test with one video."
+
+**Assistant interpretation:** Build the designed corpus pipeline in the worktree and validate it with one real video through the warm Nemotron service, including resume and export repair.
+
+**Inferred user intent:** Prove the architecture works end to end on real audio before scaling to the full 36-video corpus.
+
+**Commits (code):**
+- 557bdeb — "Fix trailing segment timestamps, propagate writer errors, fix chunk word counts" (Phase 0)
+- 5aaff02 — "Implement corpus pipeline: manifest, store, runner, exports, search, CLI"
+- 9f38c0a — "Sort words by start time for overlap chunk boundaries, add manifest converter"
+
+### What I did
+- Phase 0: fixed trailing segment end timestamp (was 0, now uses last word end); propagated SRT/VTT/TXT writer errors in batch.go; fixed legacy SQLite chunk word_count (replaced placeholder `split` with `strings.Fields` and corrected count from linked rows); added regression tests.
+- Implemented `internal/corpus` package: manifest loading/validation, pipeline fingerprinting, SQLite store with full schema (corpora, videos, transcript_attempts, transcript_revisions, words, chunks, chunk_words, exports, chunk_fts), resume planner, atomic commit protocol, export coordinator, FTS5 search, sequential warm-service runner.
+- Implemented `cmd/transcribe/corpus.go` with `run`, `status`, `search`, and `export` subcommands.
+- Wrote `scripts/convert_media_manifest.py` to convert the yt-dlp media manifest into the normalized transcription manifest.
+- Generated and validated the 37-item Southwell manifest (36 available, 1 members-only).
+- Ran dry-run: 37 total, 36 available, 1 unavailable, 36 pending.
+- Ran real transcription of video 019: 467 words, 24 chunks, 171.5s, committed revision 1.
+- Generated SRT/VTT/TXT exports from committed rows.
+- Verified resume: rerun performed zero ASR calls, zero service starts.
+- Verified export repair: deleted SRT, regenerated via `corpus export` without Dagger.
+- Verified search: "category theory" returned timestamped chunks with deep links.
+
+### Why
+- The design required proof that the warm-service, atomic-revision, resume architecture works on real audio before scaling.
+- Video 019 is the shortest Southwell lecture (171.5s) and already had a known 467-word reference.
+
+### What worked
+- All 8 Go test packages pass, including 8 new corpus tests.
+- `gofmt -l cmd internal` returns no diffs.
+- `go vet ./...` clean.
+- DB integrity_check and foreign_key_check pass.
+- `transcript_revisions.word_count` (467) equals `COUNT(words)` (467).
+- Zero chunks with mismatched `word_count`.
+- Final SRT cue ends at 00:02:50,879 (nonzero).
+- Resume: attempt count stayed at 2 (no new ASR attempt); summary showed `will_transcribe=0 service_start=false`.
+- Export repair regenerated the deleted SRT without starting Dagger.
+- Search returned 5 ranked hits with YouTube deep links.
+- `docmgr doctor` passes.
+
+### What didn't work
+- First real run failed validation: overlap chunking produced out-of-order words at boundaries (word 159 at 61.120s before word 158 at 61.920s). Fixed by sorting words by start time before validation and storage. The first failed attempt is preserved in `transcript_attempts` as evidence.
+- The existing `corpus.db` from the caption indexing had a different schema; the Nemotron corpus uses a separate `corpus-nemotron.db`.
+- `SetMaxOpenConns(1)` caused a deadlock with prepared statements inside transactions; removed it.
+
+### What I learned
+- Nemotron's 2-second overlap naturally produces out-of-order words at chunk boundaries. Sorting by start time before storage is the correct fix; the alternative of tighter validation would reject valid overlap words.
+- The existing `corpus.db` name collision is a real operational hazard; the operator playbook documents the separate database path.
+- Prepared statements within transactions on a single-connection pool deadlock in modernc.org/sqlite.
+
+### What was tricky to build
+- The transcriber needs the service endpoint, which only exists after the service starts. The runner uses a `TranscriberFactory` function that receives the endpoint, rather than a pre-built `Transcriber`.
+- The FTS5 external content table (`content='chunks'`) requires manual `INSERT INTO chunk_fts (rowid, text)` during the same transaction that creates the chunk row.
+- The manifest converter must handle unavailable items (members-only) even when they have no media file or entry in the media manifest.
+
+### What warrants a second pair of eyes
+- The word sort is a stable insertion sort (O(n²)); for 467 words this is fine, but for hour-long lectures with thousands of words, consider `sort.SliceStable`.
+- The first failed attempt is preserved; a cleanup policy for abandoned/failed attempts should be defined.
+- The corpus database has no migration framework; schema changes require manual handling.
+- Streaming multipart uploads are not yet implemented; the current client still buffers the full WAV in memory.
+
+### What should be done in the future
+- Run the full 36-video Southwell corpus.
+- Stream multipart uploads for long lectures.
+- Add per-word confidence and source chunk index from the server response.
+- Add a migration framework or versioned schema.
+- Add a cleanup policy for old attempts and retired revisions.
+
+### Code review instructions
+- Review commits 557bdeb, 5aaff02, 9f38c0a on branch `feature/video-pipeline-corpus`.
+- Run `go test ./... -count=1` and `gofmt -l cmd internal`.
+- Run `./transcribe corpus run --manifest ... --dry-run` to inspect planning.
+- Inspect `corpus-nemotron.db` with the queries in the operator playbook.
+- Verify resume by running twice and checking attempt count.
+
+### Technical details
+
+```text
+Video: RZPeFGg84Ng (019, My New Category Theory Book)
+Words: 467
+Chunks: 24
+Duration: 171.456s
+Attempts: 2 (1 failed validation, 1 succeeded)
+Exports: SRT (3327B), VTT (3272B), TXT (2520B)
+Database: corpus-nemotron.db
+Final SRT cue end: 00:02:50,879
+```
