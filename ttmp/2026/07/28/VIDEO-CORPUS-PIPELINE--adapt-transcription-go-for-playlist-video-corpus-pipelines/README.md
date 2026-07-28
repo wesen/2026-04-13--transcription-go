@@ -1,21 +1,24 @@
-# Adapt Transcription Go for Playlist Video Corpus Pipelines
+# VIDEO-CORPUS-PIPELINE
 
-This is the document workspace for ticket VIDEO-CORPUS-PIPELINE.
+Design and implementation workspace for adapting `transcription-go` from one-file transcription to a resumable playlist-wide video corpus pipeline.
 
-## Structure
+## Read in this order
 
-- **design/**: Design documents and architecture notes
-- **reference/**: Reference documentation and API contracts
-- **playbooks/**: Operational playbooks and procedures
-- **scripts/**: Utility scripts and automation
-- **sources/**: External sources and imported documents
-- **various/**: Scratch or meeting notes, working notes
-- **archive/**: Optional space for deprecated or reference-only artifacts
+1. `analysis/01-current-system-and-video-corpus-gap-analysis.md`
+2. `design-doc/01-intern-guide-playlist-video-corpus-transcription-architecture-and-implementation.md`
+3. `reference/01-corpus-database-and-pipeline-api-contracts.md`
+4. `playbook/01-playlist-corpus-operator-playbook.md`
+5. `reference/02-investigation-diary.md`
 
-## Getting Started
+## Main decision
 
-Use docmgr commands to manage this workspace:
+Use one warm Nemotron service per corpus run and one canonical corpus SQLite database. Preserve timed words as evidence; derive chunks, search indexes, and SRT/VTT/TXT exports.
 
-- Add documents: `docmgr doc add --ticket VIDEO-CORPUS-PIPELINE --doc-type design-doc --title "My Design"`
-- Import sources: `docmgr import file --ticket VIDEO-CORPUS-PIPELINE --file /path/to/doc.md`
-- Update metadata: `docmgr meta update --ticket VIDEO-CORPUS-PIPELINE --field Status --value review`
+## Immediate implementation phases
+
+- Correct current formatter and legacy SQLite issues.
+- Add normalized manifest parsing and validation.
+- Add corpus schema, fingerprinting, planning, and atomic revisions.
+- Add warm-service sequential runner and resumability.
+- Add export repair, status, and corpus search.
+- Validate on Southwell video 019, interruption/resume, then the full accessible corpus.
