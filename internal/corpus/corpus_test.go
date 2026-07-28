@@ -254,6 +254,19 @@ func TestValidateTranscriptionRejectsBadTimes(t *testing.T) {
 	}
 }
 
+func TestSortWordsByStart(t *testing.T) {
+	words := []Word{
+		{Text: "a", Start: 0, End: 0.5},
+		{Text: "b", Start: 1, End: 1.5},
+		{Text: "c", Start: 0.8, End: 1.0}, // overlap out-of-order
+		{Text: "d", Start: 2, End: 2.5},
+	}
+	sortWordsByStart(words)
+	if words[0].Text != "a" || words[1].Text != "c" || words[2].Text != "b" || words[3].Text != "d" {
+		t.Errorf("sort order = %v", []string{words[0].Text, words[1].Text, words[2].Text, words[3].Text})
+	}
+}
+
 func TestDeriveChunksTrailingBufferNonZeroEnd(t *testing.T) {
 	words := []Word{
 		{Text: "Hello", Start: 0, End: 0.5},

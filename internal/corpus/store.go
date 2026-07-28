@@ -400,6 +400,10 @@ func (s *Store) BeginAttempt(ctx context.Context, v Video, fp Fingerprint, endpo
 // CommitTranscript atomically inserts a revision, words, chunks, links, FTS,
 // marks the attempt succeeded, and switches the video's active revision.
 func (s *Store) CommitTranscript(ctx context.Context, v Video, attempt *Attempt, fp Fingerprint, result Transcription, policy ChunkPolicy) (*Revision, error) {
+	// Sort words by start time. The server's overlap chunking can produce
+	// out-of-order words at chunk boundaries; a stable sort preserves
+	// within-chunk order while ensuring global monotonicity.
+	sortWordsByStart(result.Words)
 	if err := validateTranscription(result); err != nil {
 		s.recordFailure(ctx, attempt, "validation", err.Error(), 0, 0, 0)
 		return nil, fmt.Errorf("validate transcription: %w", err)
@@ -766,6 +770,17 @@ func effectiveHash(audioHash, mediaHash string) string {
 	return ""
 }
 
+// sortWordsByStart stably sorts words by start time. This handles the
+// overlap-chunk boundary case where a word from the next chunk's overlap
+// region appears slightly before the previous chunk's final word.
+func sortWordsByStart(words []Word) {
+	for i := 1; i < len(words); i++ {
+		for j := i; j > 0 && words[j].Start < words[j-1].Start; j-- {
+			words[j], words[j-1] = words[j-1], words[j]
+		}
+	}
+}
+
 func validateTranscription(result Transcription) error {
 	if len(result.Words) == 0 {
 		return errors.New("transcription has no words")
@@ -779,9 +794,6 @@ func validateTranscription(result Transcription) error {
 		}
 		if w.End < w.Start {
 			return fmt.Errorf("word %d end %.3f before start %.3f", i, w.End, w.Start)
-		}
-		if i > 0 && w.Start < result.Words[i-1].Start-0.75 {
-			return fmt.Errorf("word %d start %.3f significantly before previous word start %.3f", i, w.Start, result.Words[i-1].Start)
 		}
 	}
 	return nil
