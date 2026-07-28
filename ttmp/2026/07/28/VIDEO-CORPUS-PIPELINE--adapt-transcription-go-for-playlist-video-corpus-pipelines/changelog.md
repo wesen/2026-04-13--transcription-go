@@ -39,3 +39,12 @@ Implemented corpus pipeline end to end: Phase 0 fixes, internal/corpus package, 
 - internal/corpus/store.go — Atomic commit and resume planner
 - scripts/convert_media_manifest.py — Manifest converter
 
+
+## 2026-07-28
+
+Streamed multipart uploads via io.Pipe and started the full 36-video Southwell corpus run in tmux.
+
+### Related Files
+
+- internal/asr/client.go — Streaming upload implementation
+

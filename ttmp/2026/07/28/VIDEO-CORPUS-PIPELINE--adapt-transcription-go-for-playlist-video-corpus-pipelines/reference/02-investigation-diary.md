@@ -387,3 +387,79 @@ Exports: SRT (3327B), VTT (3272B), TXT (2520B)
 Database: corpus-nemotron.db
 Final SRT cue end: 00:02:50,879
 ```
+
+## Step 6: Stream multipart uploads and start the full corpus run
+
+After the one-video validation, two improvements were made before scaling to the full 36-video corpus: streaming multipart uploads and the full run itself.
+
+### Prompt Context
+
+**User prompt (verbatim):** "commit if you haven't yet, keep a detailed diary as you work, and continue"
+
+**Assistant interpretation:** Commit any pending work, maintain the diary, and proceed with the next implementation steps.
+
+**Inferred user intent:** Scale from the one-video proof to the full corpus while improving robustness.
+
+**Commit (code):** b71b809 — "Stream multipart uploads via io.Pipe to avoid full-WAV memory buffering"
+
+### What I did
+- Replaced the `bytes.Buffer`-based multipart upload in `internal/asr/client.go` with an `io.Pipe`-streamed implementation. The goroutine writes the multipart form data to the pipe while the HTTP request body reads from it, so the full WAV file is never held in memory.
+- Removed the unused `bytes` import.
+- Verified all existing ASR tests pass with the streaming implementation.
+- Checked WAV file sizes: the largest lecture (video 021) produces an 812 MB WAV file, confirming streaming is essential.
+- Measured total corpus audio: 281,179 seconds (78.1 hours) across 36 available videos.
+- Started the full corpus run in a tmux session (`southwell-corpus`) with all 36 available videos, skipping the already-completed video 019.
+- Confirmed the service started, video 001 (US4Zr1WKD-8, 58 minutes) began transcribing, and all 35 remaining available videos show as `pending`.
+
+### Why
+- The largest WAV file is 812 MB. The old `bytes.Buffer` approach would have loaded that entire file into Go process memory before sending the HTTP request. Streaming via `io.Pipe` keeps memory bounded regardless of file size.
+- The full corpus run validates the warm-service reuse across many videos, the resume planner at scale, and the sequential processing loop under real load.
+
+### What worked
+- Streaming upload tests pass; `go test ./...` all green.
+- `gofmt -l` clean.
+- The full corpus run started successfully in tmux.
+- Video 019 was correctly skipped (resume planner showed `unchanged`).
+- The Dagger service started once and is being reused across videos.
+- Video 001 is actively transcribing with chunk-level progress visible.
+
+### What didn't work
+- No failures yet. The run is ongoing.
+
+### What I learned
+- 78 hours of audio on a CPU-bound ASR model is a multi-hour to multi-day operation. The sequential warm-service approach is correct for reliability but not fast.
+- The Dagger cache makes service startup much faster on subsequent runs (~40s vs cold-start minutes).
+- The `io.Pipe` pattern for multipart streaming is straightforward in Go but requires careful error propagation from the writer goroutine to the pipe reader.
+
+### What was tricky to build
+- The `io.Pipe` goroutine must close the pipe with an error if any write step fails, otherwise the HTTP client would hang waiting for a body that never completes.
+- The pipe writer must be closed (not just the multipart writer) to signal EOF to the HTTP request body reader.
+
+### What warrants a second pair of eyes
+- The streaming goroutine error propagation path: if `io.Copy` fails mid-stream, does the server receive a partial upload and hang, or does it return an error promptly?
+- Whether the 78-hour corpus should be run with GPU acceleration or a faster model in the future.
+- Whether very long videos (7.4 hours) will complete within Dagger session limits.
+
+### What should be done in the future
+- Monitor the full corpus run to completion.
+- Add GPU support if CPU-only processing is too slow for routine use.
+- Add per-video timeout or cancellation for extremely long videos.
+- Consider splitting very long videos into segments for independent processing.
+
+### Code review instructions
+- Review commit b71b809 for the `io.Pipe` streaming implementation.
+- Run `go test ./internal/asr -count=1 -v` to verify streaming tests.
+- Inspect the tmux session: `tmux capture-pane -pt southwell-corpus:0 | tail -50`.
+- Query the corpus database for progress: `sqlite3 corpus-nemotron.db "SELECT processing_state, COUNT(*) FROM videos GROUP BY processing_state;"`
+
+### Technical details
+
+```text
+Largest WAV: 812 MB (video 021)
+Total audio: 281,179 seconds (78.1 hours)
+Available videos: 36
+Completed before full run: 1 (video 019)
+Pending at full run start: 35
+tmux session: southwell-corpus
+Streaming: io.Pipe-based multipart upload
+```
