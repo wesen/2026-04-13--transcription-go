@@ -45,7 +45,7 @@ existing batch pipeline. Use 'live' for the work-in-progress live pipeline.`,
 	}
 	addLiveFlags(liveCmd, &liveOpts)
 
-	rootCmd.AddCommand(batchCmd, liveCmd)
+	rootCmd.AddCommand(batchCmd, liveCmd, newCorpusCmd())
 	return rootCmd
 }
 
