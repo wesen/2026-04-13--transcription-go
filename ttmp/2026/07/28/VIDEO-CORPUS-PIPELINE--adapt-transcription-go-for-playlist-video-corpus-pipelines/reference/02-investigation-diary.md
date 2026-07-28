@@ -463,3 +463,24 @@ Pending at full run start: 35
 tmux session: southwell-corpus
 Streaming: io.Pipe-based multipart upload
 ```
+
+### Long-video validation: video 001 completed
+
+Video 001 (US4Zr1WKD-8, "Introduction", 58 minutes) completed successfully during the full corpus run, proving the pipeline works for long-form lectures:
+
+- 6850 words, 360 chunks, 3475.3 seconds committed as revision 2.
+- DB integrity_check and foreign_key_check pass.
+- `word_count` (6850) matches `COUNT(words)` (6850): OK.
+- Zero chunks with mismatched `word_count`.
+- SRT/VTT/TXT exports generated from committed rows.
+- Final SRT cue has valid text (chunk derivation preserved trailing buffer).
+- ASR processing time: ~12 minutes for 58 minutes of audio (0.2x realtime on CPU).
+- The warm Dagger service was reused: no model reload between video 019 (already complete) and video 001.
+- Video 002 (HN-bfUGFmFQ) immediately began transcribing after video 001 committed, proving sequential warm-service reuse at scale.
+
+This validates:
+- streaming multipart uploads work for large WAV files (video 001 WAV is ~167 MB);
+- the atomic commit protocol handles thousands of words and hundreds of chunks;
+- chunk derivation and FTS indexing work at scale;
+- the runner correctly transitions from one video to the next without service restart;
+- resume planning correctly skipped video 019 and started with video 001.

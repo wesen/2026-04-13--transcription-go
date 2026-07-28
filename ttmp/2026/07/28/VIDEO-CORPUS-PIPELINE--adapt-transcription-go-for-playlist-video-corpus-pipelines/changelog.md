@@ -48,3 +48,8 @@ Streamed multipart uploads via io.Pipe and started the full 36-video Southwell c
 
 - internal/asr/client.go — Streaming upload implementation
 
+
+## 2026-07-28
+
+Video 001 (58 min) completed: 6850 words, 360 chunks, all DB invariants pass. Full corpus run ongoing in tmux.
+
