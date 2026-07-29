@@ -1,0 +1,862 @@
+## NVIDIA Nemotron Developer Repository
+
+**Open and efficient models for agentic AI.** Training recipes, deployment guides, and use-case 
+examples for the Nemotron family.
+
+[![Python 
+3.10+](https://camo.githubusercontent.com/13466c63b4f964f1bc47e46eabb6ea9ebff2cb7777cba82af790a55719
+bbbfda/68747470733a2f2f696d672e736869656c64732e696f2f62616467652f707974686f6e2d332e31302532422d626c7
+5652e737667)](https://www.python.org/downloads/) [![License: Apache 
+2.0](https://camo.githubusercontent.com/109222cb0d1f59ed2e77b56722653623fa45f93e2bb201a6eef8561d26a5
+2185/68747470733a2f2f696d672e736869656c64732e696f2f62616467652f4c6963656e73652d417061636865253230322
+e302d677265656e2e737667)](https://opensource.org/licenses/Apache-2.0) [![Contributions 
+Welcome](https://camo.githubusercontent.com/382079383bf5ec051cfa878df7b3d9a70a5f5052e573c67033d4d3f7
+e376a6d4/68747470733a2f2f696d672e736869656c64732e696f2f62616467652f636f6e747269627574696f6e732d77656
+c636f6d652d627269676874677265656e2e737667)](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/CONTRI
+BUTING.md) 
+[![Docs](https://camo.githubusercontent.com/7704318724555f0dc00eba3eec91878de2f46c6c59870bdd9e36386c
+33f327c5/68747470733a2f2f696d672e736869656c64732e696f2f62616467652f646f63732d6465762d3736423930302e7
+37667)](https://nvidia-nemo.github.io/Nemotron/dev/)
+
+---
+
+> 🎉Nemotron 3 Ultra was [announced](https://www.youtube.com/live/q_umfWm8J28?t=4568s) at GTC San 
+Jose 2026. The model is open-source on [Hugging 
+Face](https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-BF16), and the [training 
+recipe](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/docs/nemotron/ultra3/README.md) is now 
+available in this repo. To learn more, [see the usage 
+guide](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/usage-cookbook/Nemotron-3-Ultra/README.md)!
+> 
+> 🎉 **Nemotron 3 Nano Omni** is now released — a 30B-A3B hybrid Mamba-Transformer MoE with 
+native text, image, video, and audio support, designed as a multimodal perception sub-agent for 
+agentic AI. See the [release 
+blog](https://developer.nvidia.com/blog/nvidia-nemotron-3-nano-omni-powers-multimodal-agent-reasonin
+g-in-a-single-efficient-open-model/), the [training 
+recipe](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/docs/nemotron/omni3/README.md), and the 
+[model weights](https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16).
+
+---
+
+## Why Nemotron?
+
+|  |  |
+| --- | --- |
+| **Open Models** | Fully transparent training data, techniques, and weights for community 
+innovation |
+| **Compute Efficiency** | Model pruning and optimization enabling higher throughput via 
+TensorRT-LLM |
+| **High Accuracy** | Built on frontier open models with human-aligned reasoning for agentic 
+workflows |
+| **Flexible Deployment** | Deploy anywhere: edge, single GPU, or data center with NIM 
+microservices |
+
+---
+
+## Use from Claude Code
+
+This repo ships a Claude Code plugin called **`nemotron-customize`** that turns the step catalog 
+under [`src/nemotron/steps/`](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/src/nemotron/steps) 
+into a guided, repo-native pipeline builder.
+
+Install once:
+
+```
+/plugin marketplace add NVIDIA/Nemotron
+/plugin install nemotron-customize@nvidia-nemotron
+```
+
+Then, **start Claude Code from the repo root** and invoke the skill:
+
+```
+cd /path/to/Nemotron        # repo root: must contain pyproject.toml and src/nemotron/steps/
+claude
+```
+
+```
+/nemotron-customize
+```
+
+The skill resolves all file paths against your current working directory, so it must be invoked 
+from the Nemotron checkout root. Running it from a subdirectory will cause file reads to fail.
+
+The skill plans the step DAG, validates artifact wiring, and emits the YAML configs needed to run 
+the requested pipeline. See 
+[`skills/nemotron-customize/SKILL.md`](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/skills/nemo
+tron-customize/SKILL.md) for the full contract.
+
+> The marketplace installs **only** `nemotron-customize`. The other folders under 
+[`skills/`](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/skills) (model knowledge bases, 
+contributor add- `*` skills) stay on disk for repo browsing but are not loaded as plugins.
+
+---
+
+## Repository Overview
+
+```
+nemotron/
+│
+├── src/nemotron/steps/      Modular building blocks for training, eval, SDG, and more
+│
+├── src/nemotron/recipes/    Training recipes (complete, reproducible pipelines)
+│
+├── usage-cookbook/          Usage cookbooks (deployment and model usage guides)
+│
+└── use-case-examples/       Examples of leveraging Nemotron in agentic workflows
+```
+
+### Which section should I use?
+
+|  | **Nemotron Steps** | **Training Recipes** | **Usage Cookbooks** | **Use Case Examples** |
+| --- | --- | --- | --- | --- |
+| **Purpose** | Full lifecycle building blocks, chain data prep, training, eval and other steps | 
+Reproduce full training pipelines from raw data to model | Deploy and use trained models | Build 
+end-to-end applications |
+| **Format** | The `nemotron steps` CLI and YAML configs | Python packages with configs, scripts, 
+and evaluation | Jupyter notebooks with step-by-step guides | Jupyter notebooks and scripts |
+| **When to use** | You want to run one stage in isolation or compose a custom pipeline | You want 
+to train, fine-tune, or understand how a model was built | You have a model and want to deploy or 
+run inference | You want to build an application (RAG, agents, tool use) |
+| **Location** | 
+[`src/nemotron/steps/`](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/src/nemotron/steps) | 
+[`src/nemotron/recipes/`](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/src/nemotron/recipes) | 
+[`usage-cookbook/`](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/usage-cookbook) | 
+[`use-case-examples/`](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/use-case-examples) |
+
+---
+
+## What is Nemotron?
+
+[NVIDIA Nemotron](https://www.nvidia.com/en-us/ai-data-science/foundation-models/nemotron/) is a 
+family of open, high-efficiency multimodal models purpose-built for agentic AI.
+
+**Model Tiers:**
+
+- **Nano** — Optimized for edge and PC deployments
+- **Super** — Single GPU deployment with highest throughput
+- **Ultra** — Multi-GPU datacenter applications
+
+Nemotron models excel at coding, math, scientific reasoning, tool calling, instruction following, 
+and visual reasoning. Deploy across edge, single GPU, or data center environments with support for 
+NeMo, TensorRT-LLM, vLLM, SGLang, and NIM microservices.
+
+---
+
+## Nemotron Steps
+
+A *Nemotron step* is a named, reusable unit of work that you invoke with the `nemotron steps` CLI. 
+Each step packages a description of the work it performs, the artifacts it consumes and produces, 
+and one or more named configurations that supply parameter values. Steps live under 
+[`src/nemotron/steps/`](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/src/nemotron/steps), and 
+the CLI discovers them at startup.
+
+The training recipes in the next section are composed from these steps. Run a step on its own when 
+you want one stage, or chain steps together when you need a different pipeline shape than the 
+published recipes.
+
+### Step Categories
+
+The catalog covers the full training lifecycle.
+
+- Data curation and preparation with `curate/*` and `data_prep/*`.
+- Synthetic data generation (SDG) with `sdg/*`.
+- Corpus translation with `translate/*`.
+- Bring-your-own benchmark generation with `byob/*`.
+- Pretraining, supervised fine-tuning (SFT), parameter-efficient fine-tuning (PEFT), and 
+reinforcement learning (RL) with `pretrain/*`, `sft/*`, `peft/*`, and `rl/*`.
+- Checkpoint conversion and model optimization with `convert/*` and `optimize/*`.
+- Benchmark evaluation with `eval/*`.
+- Execution-profile setup with `env/*`.
+
+### Documentation
+
+- [About Nemotron Steps](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/docs/steps/index.md) is 
+the entry point for the step model.
+- [Nemotron Steps Basics](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/docs/steps/basics.md) 
+defines *step*, *configuration*, *environment profile*, and *artifact*.
+- [Getting Started With 
+Steps](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/docs/steps/getting-started.md) walks 
+through the CLI on a small example.
+
+---
+
+## Training Recipes
+
+The Nemotron repository provides reproducible training pipelines from raw data to deployment-ready 
+models. These implementations reflect how large language models are actually trained: careful 
+experimentation, validation gates, and systematic optimization.
+
+### Why Complete Pipelines?
+
+Training a production model involves interconnected components. Isolated examples miss how stages 
+interact. Complete pipelines show:
+
+- **How data quality affects downstream performance** across pretraining, SFT, and RL
+- **Which training techniques actually work together**, not just in theory
+- **Where validation gates prevent failures** and maintain reproducibility
+- **How to balance competing objectives** across stages
+
+Because these are complete systems, you can extract specific techniques with confidence. Each 
+component has been proven to work in context.
+
+### Each Recipe Includes
+
+- 🎨 **Synthetic Data Generation** - Scripts to generate synthetic datasets using 
+[NVIDIA-NeMo/DataDesigner](https://github.com/NVIDIA-NeMo/DataDesigner)
+- 🗂️ **Data Curation** - Scripts to prepare training data using [NVIDIA NeMo 
+Curator](https://github.com/NVIDIA/NeMo-Curator) for scalable data processing, filtering, and 
+quality enhancement
+- 🔁 **Training** - Complete training loops with hyperparameters using:
+	- [NVIDIA-NeMo/Megatron-Bridge](https://github.com/NVIDIA-NeMo/Megatron-Bridge/tree/main) 
+for Megatron models
+		- [NVIDIA-NeMo/Automodel](https://github.com/NVIDIA-NeMo/Automodel) for HuggingFace 
+models
+		- [NVIDIA-NeMo/NeMo-RL](https://github.com/NVIDIA-NeMo/RL/tree/main) when RL is 
+needed
+		- Includes GPU-accelerated last-mile data processing (tokenization + optional 
+sequence packing) for optimal training efficiency
+- 📊 **Evaluation** - Benchmark evaluation on standard suites using [NVIDIA NeMo 
+Evaluator](https://github.com/NVIDIA-NeMo/Evaluator)
+- 📖 **Documentation** - Detailed explanations of each stage
+
+### Available Recipes
+
+| Model | Description | Stages | Guide |
+| --- | --- | --- | --- |
+| **[Nemotron 3 
+Ultra](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/docs/nemotron/ultra3/README.md)** | 550B 
+total / 55B active hybrid Mamba-Attention LatentMoE Transformer with MTP and 1M context — 
+NVIDIA's largest Nemotron 3 model for datacenter-scale agentic reasoning | Pretrain → SFT → 
+RLVR → MOPD | [Training 
+Guide](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/docs/nemotron/ultra3/README.md) |
+| **[Nemotron 3 
+Super](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/docs/nemotron/super3/README.md)** | 120.6B 
+total / 12.7B active Hybrid Mamba Latent MoE Transformer for frontier reasoning, coding, and 
+agentic tasks | Pretrain → SFT → RL | [Training 
+Guide](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/docs/nemotron/super3/README.md) |
+| **[Nemotron 3 
+Nano](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/docs/nemotron/nano3/README.md)** | 31.6B 
+total / 3.6B active MoE Hybrid Mamba-Transformer for agentic reasoning | Pretrain → SFT → RL | 
+[Training Guide](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/docs/nemotron/nano3/README.md) |
+| **[Nemotron 3 Nano 
+Omni](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/docs/nemotron/omni3/README.md)** | 30B 
+total / 3B active hybrid Mamba-Transformer MoE — native text, image, video, and audio for agentic 
+multimodal perception | SFT → RL (MPO / text / vision) → Eval | [Training 
+Guide](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/docs/nemotron/omni3/README.md) |
+
+### Nemotron 3 Ultra
+
+A training recipe for NVIDIA's largest Nemotron 3 model — a 550B-A55B hybrid Mamba-Attention 
+Mixture-of-Experts Transformer with LatentMoE and multi-token prediction (MTP), pretrained in NVFP4 
+and extended to 1M-token context for datacenter-scale agentic reasoning.
+
+> **Open-Source Data Only**: These recipes train exclusively on the open-sourced subset of training 
+data. Results will differ from the tech report benchmarks, which used additional proprietary data. 
+Use these recipes as reference implementations to apply the methodology with your own data.
+
+**Model Specifications**:
+
+- 550B total / 55B active parameters (MoE)
+- Hybrid Mamba-Attention architecture with LatentMoE + two shared-weight MTP layers
+- 20T pretraining tokens in NVFP4, two-phase data curriculum
+- Up to 1M (1,048,576) context length
+- Full program: Pretrain → SFT → RLVR → MOPD → MTP Boosting (this recipe covers **Pretrain 
+→ SFT**)
+
+**What You Can Extract**:
+
+- Two-phase pretraining data mixture (tech-report Figure 4) over the open Nemotron datasets
+- Ray-based data prep: tokenize raw datasets → Megatron bin/idx (pretrain) and pack chat data → 
+Parquet (SFT)
+- New open pretraining datasets: Specialized-v1.2 (Multiple-Choice / Generative / Fact-Seeking / 
+Moral-Scenarios) and Legal-v1
+- Stage-local container builds (Day-0 Megatron-Bridge) for both pretrain and SFT
+- Megatron-Bridge training at Ultra scale (TP=2 / PP=12 / EP=32 pretrain, PP=6 SFT)
+
+**Resources**:
+
+- [Training Guide](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/docs/nemotron/ultra3/README.md)
+- [Usage 
+Guide](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/usage-cookbook/Nemotron-3-Ultra/README.md)
+- [Model Weights (BF16)](https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-BF16)
+
+### Nemotron 3 Super
+
+A complete training recipe for the frontier Hybrid Mamba Latent Mixture-of-Experts Transformer 
+model with state-of-the-art reasoning, coding, and agentic capabilities.
+
+> **Open-Source Data Only**: These recipes train exclusively on the open-sourced subset of training 
+data. Results will differ from the tech report benchmarks, which used additional proprietary data. 
+Use these recipes as reference implementations to apply the methodology with your own data.
+
+**Model Specifications**:
+
+- 120B total / 12B active parameters
+- Multi-stage RL pipeline: 3× RLVR + 2× SWE-RL + RLHF across 21 reward environments
+- Asynchronous GRPO with decoupled training and inference
+
+**What You Can Extract**:
+
+- Large-scale pretraining with data curriculum
+- Multi-domain SFT pipeline
+- Multi-environment RLVR with 21 simultaneous reward environments
+- SWE-RL with container-isolated sandbox execution
+- GenRM-based RLHF with principle-following rewards
+- Asynchronous GRPO at 1K GPU scale
+
+**Resources**:
+
+- [Training Guide](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/docs/nemotron/super3/README.md)
+- [Tech 
+Report](https://research.nvidia.com/labs/nemotron/files/NVIDIA-Nemotron-3-Super-Technical-Report.pdf
+)
+- [Model Weights (Instruct)](https://huggingface.co/nvidia/Nemotron-3-Super-49B-v1)
+
+### Nemotron 3 Nano
+
+A complete training recipe for the open, efficient Mixture-of-Experts hybrid Mamba-Transformer 
+model optimized for agentic reasoning.
+
+> **Open-Source Data Only**: These recipes train exclusively on the open-sourced subset of training 
+data. Results will differ from the tech report benchmarks, which used additional proprietary data. 
+Use these recipes as reference implementations to apply the methodology with your own data.
+
+**Model Specifications**:
+
+- 31.6B total parameters, 3.6B active per forward pass
+- 25 trillion pretraining tokens with curriculum learning
+- Up to 1M context length
+- 3.3x higher inference throughput than similarly sized models
+
+**What You Can Extract**:
+
+- Curriculum-based pretraining with two-phase data mixture
+- Long-context extension via CPT methodology
+- Multi-domain SFT with 12+ data sources
+- InfinityByte cross-domain code synthesis
+- Tool-calling fine-tuning and budget-controlled reasoning
+- Multi-environment RLVR with GRPO
+- GenRM reward modeling with circular comparison
+- DPO for tool hallucination reduction
+
+**Resources**:
+
+- [Training Guide](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/docs/nemotron/nano3/README.md)
+- [Tech 
+Report](https://research.nvidia.com/labs/nemotron/files/NVIDIA-Nemotron-3-Nano-Technical-Report.pdf)
+- [Model Weights (Base)](https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-Base-BF16)
+- [Model Weights (Instruct)](https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16)
+- [Model Weights (FP8)](https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8)
+
+### Nemotron 3 Nano Omni
+
+A multimodal training recipe for the 30B-A3B hybrid Mamba-Transformer Mixture-of-Experts model. 
+Native support for text, image, video, and audio in a single decoder, designed as a perception 
+sub-agent for agentic AI.
+
+[![Nemotron 3 Nano Omni hybrid MoE architecture: each modality (audio via Parakeet, vision via 
+C-RADIOv4-H + 3D convolution + Efficient Video Sampling, text via tokenizer) has its own encoder 
+and adaptor; all streams converge on the unified 30B-A3B LLM 
+decoder](https://github.com/NVIDIA-NeMo/Nemotron/raw/main/docs/assets/omni-3.png)](https://github.co
+m/NVIDIA-NeMo/Nemotron/blob/main/docs/assets/omni-3.png)
+
+> **Open-Source Data Only**: These recipes train exclusively on the open-sourced subset of training 
+data (e.g., CORD-v2 for SFT, public MMPR / MMPR-Tiny for RL). Results will differ from the release 
+benchmarks, which used additional internal datasets. Use these recipes as reference implementations 
+to apply the methodology with your own data.
+
+**Model Specifications**:
+
+- 30B total / 3B active parameters (A3B MoE)
+- Hybrid architecture: Mamba layers (sequence/memory efficiency) + transformer layers (reasoning), 
+with a unified text decoder
+- Native modalities: text, image, video, audio
+- Vision encoder: C-RADIOv4-H · Audio encoder: NVIDIA Parakeet · Video pipeline: 3D convolutions 
++ Efficient Video Sampling (EVS)
+- Context length: progressively scaled 16K → 49K → 262K
+- Best-in-class on MMlongbench-Doc, OCRBenchV2; leading on WorldSense, DailyOmni, VoiceBench
+- Up to ~9.2× greater video-reasoning system capacity, ~7.4× on multi-document workloads vs. 
+comparable open omni models
+- License: NVIDIA Nemotron Open Model License (enterprise-friendly, on-prem and any deployment)
+
+**What You Can Extract**:
+
+- Multimodal SFT pipeline using Megatron-Bridge with the Valor32k recipe family (open-dataset 
+CORD-v2 default + Valor32k variants)
+- Progressive context scaling: 16K → 49K → 262K
+- Multimodal preference optimization (MPO) on the public MMPR dataset
+- Text-only GRPO continuation of alignment via NeMo-RL
+- Vision GRPO on MMPR-Tiny
+- Inline NVIDIA stack: Megatron-Bridge for SFT, NeMo-RL (`nano-v3-omni` branch with the omni vllm 
+fork as a submodule) for RL
+- Cookbook-style end-to-end recipe (build → data prep → SFT → RL → eval) reproducing the 
+release training stages
+
+**Resources**:
+
+- [Training Guide](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/docs/nemotron/omni3/README.md)
+- [Release 
+Blog](https://developer.nvidia.com/blog/nvidia-nemotron-3-nano-omni-powers-multimodal-agent-reasonin
+g-in-a-single-efficient-open-model/)
+- [Model Weights (BF16)](https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16)
+- [Image Training Data](https://huggingface.co/datasets/nvidia/Nemotron-Image-Training-v3)
+- Upstream pre-training recipe: [`NVIDIA-NeMo/Megatron-Bridge` 
+`nemotron_3_omni`](https://github.com/NVIDIA-NeMo/Megatron-Bridge/tree/nemotron_3_omni)
+- Upstream RL recipe: [`NVIDIA-NeMo/RL` 
+`nano-v3-omni`](https://github.com/NVIDIA-NeMo/RL/tree/nano-v3-omni)
+
+---
+
+## Usage Cookbooks
+
+Practical deployment and model usage guides for Nemotron models.
+
+| Model | Best For | Key Features | Resources |
+| --- | --- | --- | --- |
+| [**Nemotron 3 Ultra 550B 
+A55B**](https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-BF16) | Long-running 
+coding, research, and enterprise agentic workflows | 1M context, 550B/55B MoE, MTP, multi-GPU 
+deployment, agent harness configs | 
+[Cookbooks](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/usage-cookbook/Nemotron-3-Ultra) |
+| [**Nemotron 3 Super 120B 
+A12B**](https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16) | Production 
+deployments needing strong reasoning | 1M context, in NVFP4 single B200, RAG & tool calling | 
+[Cookbooks](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/usage-cookbook/Nemotron-3-Super) |
+| [**Nemotron 3 Nano 30B A3B**](https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16) 
+| Resource-constrained environments | 1M context, sparse MoE hybrid Mamba-2, controllable reasoning 
+| [Cookbooks](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/usage-cookbook/Nemotron-3-Nano) |
+| [**Llama-3.1-Nemotron-Nano-8B-v1**](https://huggingface.co/nvidia/Llama-3.1-Nemotron-Nano-8B-v1) 
+| Small-footprint OCI deployments | Validated on private OKE in Phoenix with `vLLM`, OCI Bastion 
+service, tool calling, and OpenAI-compatible `/v1` inference; provides a reproducible OCI path 
+comparable to common AWS GPU/Kubernetes deployment patterns | 
+[Cookbooks](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/usage-cookbook/Llama-3.1-Nemotron-Nano
+-8B-v1) |
+| 
+[**NVIDIA-Nemotron-Nano-12B-v2-VL**](https://huggingface.co/nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL) 
+| Document intelligence and video understanding | 12B VLM, video reasoning, Efficient Video 
+Sampling | 
+[Cookbooks](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/usage-cookbook/Nemotron-Nano2-VL) |
+| 
+[**Llama-3.1-Nemotron-Safety-Guard-8B-v3**](https://huggingface.co/nvidia/Llama-3.1-Nemotron-Safety-
+Guard-8B-v3) | Multilingual content moderation | 9 languages, 23 safety categories | 
+[Cookbooks](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/usage-cookbook/Llama-3.1-Nemotron-Safe
+ty-Guard-V3) |
+| **Nemotron-Parse** | Document parsing for RAG and AI agents | Table extraction, semantic 
+segmentation | 
+[Cookbooks](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/usage-cookbook/Nemotron-Parse-v1.1) |
+
+---
+
+## Use Case Examples
+
+End-to-end examples demonstrating practical applications in the 
+[`use-case-examples/`](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/use-case-examples) 
+directory:
+
+- **Agentic Workflows** — Multi-step AI agents with planning, context management, and external 
+tools
+- **RAG Systems** — Pipelines combining retrieval with Nemotron models for grounded outputs
+- **Tool Integration** — Structured tool calling, function execution, and data enrichment
+- **Production Patterns** — Scalability, monitoring, and deployment architectures
+
+---
+
+## Nemotron Open Datasets
+
+More than just weights, recipes, and libraries: Nemotron is committed to opening data across many 
+domains, training phases, and use cases.
+
+**Nemotron Data Catalogue**
+
+*A comprehensive collection of NVIDIA Nemotron datasets spanning pre-training, post-training, 
+reinforcement learning, multimodal, safety, and domain-specific applications. These openly 
+available datasets power the Nemotron family of models for agentic AI development.*
+
+---
+
+**Code**
+
+*Datasets for training code generation, competitive programming, and software engineering 
+capabilities across multiple programming languages.*
+
+| Dataset | Usage | License | Model(s) | Description |
+| --- | --- | --- | --- | --- |
+| [Nemotron-CC-Code-v1](https://huggingface.co/datasets/nvidia/Nemotron-CC-Code-v1) | Pre-training 
+| NVIDIA Data Agreement | Nemotron 3 Nano | 427.9B tokens from Common Crawl code pages using Lynx + 
+LLM pipeline |
+| 
+[Nemotron-Pretraining-Code-v1](https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-Code-v1) 
+| Pre-training | NVIDIA Data Agreement | Nemotron Nano 2 | GitHub-sourced code corpus for Nemotron 
+Nano 2 |
+| 
+[Nemotron-Pretraining-Code-v2](https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-Code-v2) 
+| Pre-training | NVIDIA Data Agreement | Nemotron 3 Nano | Updated GitHub code + synthetic QA with 
+STEM reasoning |
+| [Nemotron-Cascade-RL-SWE](https://huggingface.co/datasets/nvidia/Nemotron-Cascade-RL-SWE) | RL 
+Training | CC-BY-4.0 | Nemotron 3 | SWE code repair from SWE-Bench, SWE-Smith, R2E-Gym |
+| 
+[Nemotron-Competitive-Programming-v1](https://huggingface.co/datasets/nvidia/Nemotron-Competitive-Pr
+ogramming-v1) | SFT | CC-BY-4.0 | Nemotron 3 | 2M+ Python and 1M+ C++ samples across 34K 
+competitive programming questions |
+| [OpenCodeReasoning](https://huggingface.co/datasets/nvidia/OpenCodeReasoning) | SFT | CC-BY-4.0 | 
+OpenCode-Nemotron | 735K Python samples across 28K competitive programming questions |
+| [OpenCodeReasoning-2](https://huggingface.co/datasets/nvidia/OpenCodeReasoning-2) | SFT | 
+CC-BY-4.0 | OpenCode-Nemotron | 2.5M samples (1.4M Python, 1.1M C++) with code completion and 
+critique |
+| [Scoring-Verifiers](https://huggingface.co/datasets/nvidia/Scoring-Verifiers) | Evaluation | 
+CC-BY-4.0 | — | Benchmark for test case generation and code reward models |
+
+---
+
+**Math**
+
+*Mathematical reasoning datasets ranging from pre-training corpora to advanced problem-solving with 
+chain-of-thought and tool-integrated reasoning. Includes the AIMO-2 competition winning dataset.*
+
+| Dataset | Usage | License | Model(s) | Description |
+| --- | --- | --- | --- | --- |
+| [Nemotron-CC-Math-v1](https://huggingface.co/datasets/nvidia/Nemotron-CC-Math-v1) | Pre-training 
+| NVIDIA Data Agreement | Nemotron Nano 2, Nemotron 3 Nano | 133B-token math dataset from Common 
+Crawl using Lynx + LLM pipeline |
+| [Nemotron-Math-Proofs-v1](https://huggingface.co/datasets/nvidia/Nemotron-Math-Proofs-v1) | SFT | 
+CC-BY-4.0 | Nemotron 3 Nano | Mathematical proofs dataset for Nemotron 3 post-training |
+| [Nemotron-Math-v2](https://huggingface.co/datasets/nvidia/Nemotron-Math-v2) | SFT | CC-BY-4.0 | 
+Nemotron 3 | 347K samples and 7M reasoning trajectories for Deeper Math Reasoning |
+| [Nemotron-CrossThink](https://huggingface.co/datasets/nvidia/Nemotron-CrossThink) | RL Training | 
+CC-BY-4.0 | Nemotron 3 | Multi-domain QA with MCQ and open-ended formats for verifiable rewards |
+| [OpenMathReasoning](https://huggingface.co/datasets/nvidia/OpenMathReasoning) | SFT | CC-BY-4.0 | 
+OpenMath-Nemotron | 5.68M samples, 306K problems from AoPS with CoT/TIR (AIMO-2 winner) |
+
+---
+
+**Science / STEM**
+
+*Scientific reasoning datasets covering chemistry, physics, and general STEM domains for training 
+models on scientific question answering and reasoning.*
+
+| Dataset | Usage | License | Model(s) | Description |
+| --- | --- | --- | --- | --- |
+| [Nemotron-Science-v1](https://huggingface.co/datasets/nvidia/Nemotron-Science-v1) | SFT | 
+CC-BY-4.0 | Nemotron 3 Nano | Synthetic science reasoning (MCQA + chemistry RQA) |
+
+---
+
+**General / Web**
+
+*Large-scale web-crawled and curated datasets for pre-training and post-training, including 
+multilingual data and general instruction-following capabilities.*
+
+| Dataset | Usage | License | Model(s) | Description |
+| --- | --- | --- | --- | --- |
+| [Nemotron-CC-v2.1](https://huggingface.co/datasets/nvidia/Nemotron-CC-v2.1) | Pre-training | 
+NVIDIA Data Agreement | Nemotron 3 Nano | 2.5T tokens English web data with synthetic rephrases and 
+translations |
+| [Nemotron-CC-v2](https://huggingface.co/datasets/nvidia/Nemotron-CC-v2) | Pre-training | NVIDIA 
+Data Agreement | Nemotron Nano 2 | 6.6T tokens quality-filtered Common Crawl with multilingual Q&A |
+| 
+[Nemotron-Pretraining-Dataset-sample](https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-Da
+taset-sample) | Pre-training (Sample) | NVIDIA Data Agreement | — | Sample subset of Nemotron 
+pre-training corpus for experimentation |
+| 
+[Llama-Nemotron-Post-Training-Dataset](https://huggingface.co/datasets/nvidia/Llama-Nemotron-Post-Tr
+aining-Dataset) | SFT + RL | CC-BY-4.0 | Llama-Nemotron Ultra/Super/Nano | Math, code, reasoning 
+data (2.2M math, 500K code) |
+| 
+[Nemotron-Post-Training-Dataset-v1](https://huggingface.co/datasets/nvidia/Nemotron-Post-Training-Da
+taset-v1) | SFT | CC-BY-4.0 | Llama-3.3-Nemotron-Super-49B-v1.5 | Math, code, STEM, tool calling |
+| 
+[Nemotron-Post-Training-Dataset-v2](https://huggingface.co/datasets/nvidia/Nemotron-Post-Training-Da
+taset-v2) | SFT + RL | CC-BY-4.0 | Llama-Nemotron | Multilingual extension (Spanish, French, 
+German, Italian, Japanese) |
+| 
+[Nemotron-3-Nano-RL-Training-Blend](https://huggingface.co/datasets/nvidia/Nemotron-3-Nano-RL-Traini
+ng-Blend) | RL Training | CC-BY-4.0 | Nemotron-3-Nano-30B-A3B | Curated multi-domain blend for 
+Nemotron 3 Nano |
+| 
+[Nemotron-RL-knowledge-web\_search-mcqa](https://huggingface.co/datasets/nvidia/Nemotron-RL-knowledg
+e-web_search-mcqa) | RL Training | ODC-BY-1.0 | Nemotron 3 | Web search and multiple-choice QA 
+tasks for NeMo Gym |
+
+---
+
+**Chat / Instruction Following**
+
+*Datasets for training conversational AI with strong instruction-following capabilities, structured 
+output generation, and multi-turn dialogue.*
+
+| Dataset | Usage | License | Model(s) | Description |
+| --- | --- | --- | --- | --- |
+| 
+[Nemotron-Instruction-Following-Chat-v1](https://huggingface.co/datasets/nvidia/Nemotron-Instruction
+-Following-Chat-v1) | SFT | CC-BY-4.0 | Nemotron 3 Nano | Multi-turn chat and structured output 
+generation |
+| 
+[Nemotron-RL-instruction\_following](https://huggingface.co/datasets/nvidia/Nemotron-RL-instruction_
+following) | RL Training | ODC-BY-1.0 | Nemotron 3 | Verifiable instruction adherence from 
+WildChat-1M + Open-Instruct |
+| 
+[Nemotron-RL-instruction\_following-structured\_outputs](https://huggingface.co/datasets/nvidia/Nemo
+tron-RL-instruction_following-structured_outputs) | RL Training | ODC-BY-1.0 | Nemotron 3 | JSON 
+schema-constrained output formatting tests |
+| 
+[Nemotron-Cascade-RL-Instruction-Following](https://huggingface.co/datasets/nvidia/Nemotron-Cascade-
+RL-Instruction-Following) | RL Training | ODC-BY-1.0 | Nemotron 3 | 108K samples for 
+instruction-following RL |
+
+---
+
+**Agentic / Tool Use**
+
+*Datasets for training AI agents with tool calling, multi-step workflows, and agentic reasoning 
+capabilities.*
+
+| Dataset | Usage | License | Model(s) | Description |
+| --- | --- | --- | --- | --- |
+| [Nemotron-Agentic-v1](https://huggingface.co/datasets/nvidia/Nemotron-Agentic-v1) | SFT | 
+CC-BY-4.0 | Nemotron 3 Nano | Multi-turn trajectories for conversational tool use and agentic 
+workflows |
+| 
+[Nemotron-RL-agent-workplace\_assistant](https://huggingface.co/datasets/nvidia/Nemotron-RL-agent-wo
+rkplace_assistant) | RL Training | ODC-BY-1.0 | Nemotron 3 | Workplace assistant agent tasks for 
+NeMo Gym |
+
+---
+
+**Alignment / Reward Modeling**
+
+*Human preference and reward modeling datasets for RLHF, SteerLM training, and model alignment. 
+Powers top-performing reward models on RM-Bench and JudgeBench.*
+
+| Dataset | Usage | License | Model(s) | Description |
+| --- | --- | --- | --- | --- |
+| [HelpSteer3](https://huggingface.co/datasets/nvidia/HelpSteer3) | Reward Modeling | CC-BY-4.0 | 
+Nemotron 3 Nano, Llama-Nemotron Super 49B | 40K+ samples; top on RM-Bench/JudgeBench with 
+preference, feedback, edit-quality |
+| [HelpSteer2](https://huggingface.co/datasets/nvidia/HelpSteer2) | Reward Modeling | CC-BY-4.0 | 
+Nemotron-4-340B-Reward, Llama-3.1-Nemotron-70B-Reward | 21K samples with 5 attributes |
+| [HelpSteer](https://huggingface.co/datasets/nvidia/HelpSteer) | SteerLM Training | CC-BY-4.0 | 
+Nemotron-4 SteerLM | 37K samples (helpfulness, correctness, coherence, complexity, verbosity) |
+| [Daring-Anteater](https://huggingface.co/datasets/nvidia/Daring-Anteater) | SFT/RLHF | CC-BY-4.0 
+| Nemotron-4-340B-Instruct | Instruction tuning dataset; synthetic subsets + FinQA, 
+wikitablequestions |
+| [sft\_datablend\_v1](https://huggingface.co/datasets/nvidia/sft_datablend_v1) | SFT | CC-BY-4.0 | 
+— | SFT data blend for RLHF pipeline |
+
+---
+
+**Vision-Language / Multimodal**
+
+*High-quality VLM training data for document intelligence, OCR, image reasoning, video QA, and 
+chain-of-thought visual understanding.*
+
+| Dataset | Usage | License | Model(s) | Description |
+| --- | --- | --- | --- | --- |
+| [Nemotron-VLM-Dataset-v2](https://huggingface.co/datasets/nvidia/Nemotron-VLM-Dataset-v2) | VLM 
+Training | CC-BY-4.0 (some CC-BY-SA-4.0) | Nemotron VLM | 8M samples for OCR, image reasoning, 
+video QA with chain-of-thought |
+| 
+[Llama-Nemotron-VLM-Dataset-v1](https://huggingface.co/datasets/nvidia/Llama-Nemotron-VLM-Dataset-v1
+) | VLM Training | CC-BY-4.0 (some CC-BY-SA-4.0) | Llama-3.1-Nemotron-Nano-VL-8B | 3M samples for 
+visual question answering and captioning |
+
+---
+
+**Physical AI / Robotics**
+
+*Datasets for embodied reasoning, physical common sense, and robotic manipulation. Powers 
+Cosmos-Reason1 for physical AI applications.*
+
+| Dataset | Usage | License | Model(s) | Description |
+| --- | --- | --- | --- | --- |
+| [Cosmos-Reason1-SFT-Dataset](https://huggingface.co/datasets/nvidia/Cosmos-Reason1-SFT-Dataset) | 
+SFT | CC-BY-4.0 | Cosmos-Reason1-7B | Video-text pairs for robotics, ego-centric demos, AV 
+reasoning |
+| [Cosmos-Reason1-RL-Dataset](https://huggingface.co/datasets/nvidia/Cosmos-Reason1-RL-Dataset) | 
+RL Training | CC-BY-4.0 | Cosmos-Reason1-7B | RL data for physical common sense and embodied 
+reasoning |
+| [Cosmos-Reason1-Benchmark](https://huggingface.co/datasets/nvidia/Cosmos-Reason1-Benchmark) | 
+Evaluation | CC-BY-4.0 | — | Benchmark for embodied reasoning (robotics, HoloAssist, AV) |
+| 
+[PhysicalAI-Robotics-Manipulation-Augmented](https://huggingface.co/datasets/nvidia/PhysicalAI-Robot
+ics-Manipulation-Augmented) | Training | CC-BY-4.0 | — | 1K Franka Panda demos with Cosmos 
+Transfer1 domain augmentation |
+
+---
+
+**Autonomous Vehicles**
+
+*Multi-sensor driving data and synthetic scenarios for training and validating autonomous vehicle 
+systems.*
+
+| Dataset | Usage | License | Model(s) | Description |
+| --- | --- | --- | --- | --- |
+| 
+[PhysicalAI-Autonomous-Vehicles](https://huggingface.co/datasets/nvidia/PhysicalAI-Autonomous-Vehicl
+es) | Training | NVIDIA AV Dataset License | — | 1,700 hours multi-sensor data from 25 countries, 
+306K clips |
+| 
+[PhysicalAI-Autonomous-Vehicle-Cosmos-Drive-Dreams](https://huggingface.co/datasets/nvidia/PhysicalA
+I-Autonomous-Vehicle-Cosmos-Drive-Dreams) | SDG | CC-BY-4.0 | Cosmos | 81K synthetic videos with 
+LiDAR and HD-map annotations |
+| 
+[PhysicalAI-Autonomous-Vehicle-Cosmos-Synthetic](https://huggingface.co/datasets/nvidia/PhysicalAI-A
+utonomous-Vehicle-Cosmos-Synthetic) | SDG | CC-BY-4.0 | Cosmos | Cosmos-generated synthetic driving 
+scenarios |
+| 
+[PhysicalAI-Autonomous-Vehicles-NuRec](https://huggingface.co/datasets/nvidia/PhysicalAI-Autonomous-
+Vehicles-NuRec) | Reconstruction | NVIDIA AV Dataset License | — | NuScenes-based reconstruction 
+data |
+
+---
+
+**Synthetic Personas / Data Generation**
+
+*Privacy-safe synthetic personas grounded in real-world demographics for sovereign AI development 
+and synthetic data generation pipelines.*
+
+| Dataset | Usage | License | Model(s) | Description |
+| --- | --- | --- | --- | --- |
+| [Nemotron-Personas-USA](https://huggingface.co/datasets/nvidia/Nemotron-Personas-USA) | SDG | 
+CC-BY-4.0 | NeMo Data Designer | 1M US personas grounded in Census demographics |
+| [Nemotron-Personas-Japan](https://huggingface.co/datasets/nvidia/Nemotron-Personas-Japan) | SDG | 
+CC-BY-4.0 | NeMo Data Designer | 1M Japanese personas aligned with regional statistics |
+| [Nemotron-Personas-India](https://huggingface.co/datasets/nvidia/Nemotron-Personas-India) | SDG | 
+CC-BY-4.0 | NeMo Data Designer | 3M Indian personas for sovereign AI development |
+| [Nemotron-Personas](https://huggingface.co/datasets/nvidia/Nemotron-Personas) | SDG | CC-BY-4.0 | 
+NeMo Data Designer | 100K US personas with 22 fields aligned to Census data |
+
+---
+
+**Privacy / PII Detection**
+
+*Synthetic datasets for training named entity recognition models to detect and redact personally 
+identifiable information.*
+
+| Dataset | Usage | License | Model(s) | Description |
+| --- | --- | --- | --- | --- |
+| [Nemotron-PII](https://huggingface.co/datasets/nvidia/Nemotron-PII) | NER Training | CC-BY-4.0 | 
+GLiNER-PII | 100K synthetic records with 55+ PII/PHI entity types |
+
+---
+
+**Safety / Content Moderation**
+
+*Content safety datasets for training guardrail models covering comprehensive risk taxonomies. 
+Powers NemoGuard content safety models.*
+
+| Dataset | Usage | License | Model(s) | Description |
+| --- | --- | --- | --- | --- |
+| 
+[Aegis-AI-Content-Safety-Dataset-1.0](https://huggingface.co/datasets/nvidia/Aegis-AI-Content-Safety
+-Dataset-1.0) | Content Moderation | CC-BY-4.0 | NemoGuard Permissive/Defensive | 11K annotated 
+interactions covering 13 risk categories |
+| 
+[Aegis-AI-Content-Safety-Dataset-2.0](https://huggingface.co/datasets/nvidia/Aegis-AI-Content-Safety
+-Dataset-2.0) | Content Moderation | CC-BY-4.0 | Llama-3.1-NemoGuard-8B-ContentSafety | Extended 
+safety dataset with 23 violation categories |
+| 
+[Nemotron-Content-Safety-Audio-Dataset](https://huggingface.co/datasets/nvidia/Nemotron-Content-Safe
+ty-Audio-Dataset) | Audio Safety | CC-BY-4.0 | — | 1.9K audio files from Aegis 2.0 with accent 
+diversity |
+
+---
+
+**RAG / Conversational QA**
+
+*Training and evaluation data for retrieval-augmented generation and conversational question 
+answering. Powers ChatQA models.*
+
+| Dataset | Usage | License | Model(s) | Description |
+| --- | --- | --- | --- | --- |
+| [ChatRAG-Bench](https://huggingface.co/datasets/nvidia/ChatRAG-Bench) | Evaluation | Other 
+(derived) | — | Benchmark across 10 datasets for document QA and unanswerable detection |
+| [ChatQA-Training-Data](https://huggingface.co/datasets/nvidia/ChatQA-Training-Data) | SFT | Other 
+(derived) | ChatQA-1.5 | Training data for ChatQA models from multiple sources |
+| [ChatQA2-Long-SFT-data](https://huggingface.co/datasets/nvidia/ChatQA2-Long-SFT-data) | SFT | 
+Other (derived) | ChatQA-2 | 128K long-context training data for ChatQA-2 |
+
+---
+
+**Biology / Drug Discovery**
+
+*Protein sequence data for training biological foundation models.*
+
+| Dataset | Usage | License | Model(s) | Description |
+| --- | --- | --- | --- | --- |
+| 
+[esm2\_uniref\_pretraining\_data](https://huggingface.co/datasets/nvidia/esm2_uniref_pretraining_dat
+a) | Pre-training | CC-BY-4.0 | ESM2-nv | 188M protein sequences for ESM2 |
+
+---
+
+**3D / Spatial Intelligence**
+
+*Testing and synthetic data for 3D reconstruction, video generation, and spatial understanding 
+models.*
+
+| Dataset | Usage | License | Model(s) | Description |
+| --- | --- | --- | --- | --- |
+| [Lyra-Testing-Example](https://huggingface.co/datasets/nvidia/Lyra-Testing-Example) | Evaluation 
+| CC-BY-4.0 | Lyra | Testing examples for Lyra generative 3D reconstruction |
+| 
+[PhysicalAI-SpatialIntelligence-Lyra-SDG](https://huggingface.co/datasets/nvidia/PhysicalAI-SpatialI
+ntelligence-Lyra-SDG) | SDG | CC-BY-4.0 | Lyra | Synthetic data for spatial intelligence models |
+| [GEN3C-Testing-Example](https://huggingface.co/datasets/nvidia/GEN3C-Testing-Example) | 
+Evaluation | CC-BY-4.0 | GEN3C | Testing examples for GEN3C video generation |
+| [ChronoEdit-Example-Dataset](https://huggingface.co/datasets/nvidia/ChronoEdit-Example-Dataset) | 
+Evaluation | CC-BY-4.0 | ChronoEdit | Temporal reasoning examples for image editing |
+
+---
+
+## 💡 Feature Requests & Ideas
+
+Have an idea for improving Nemotron models? Create a 
+[Discussion](https://github.com/NVIDIA-NeMo/Nemotron/discussions) topic for it!
+
+If you have a feature request, feel free to open an 
+[Issue](https://github.com/NVIDIA-NeMo/Nemotron/issues) and tag it as `enhancement`.
+
+Your feedback helps shape the future of Nemotron models!
+
+---
+
+## Documentation
+
+- [Nemotron 3 Super Training 
+Guide](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/docs/nemotron/super3/README.md) – 
+frontier model training recipe
+- [Nemotron 3 Nano Training 
+Guide](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/docs/nemotron/nano3/README.md) – 
+efficient model training recipe
+- [NeMo-Run 
+Configuration](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/docs/nemo_runspec/nemo-run.md) – 
+execution profiles and job orchestration
+- [Data Preparation](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/docs/nemotron/data-prep.md) 
+– data preparation module
+- [Contributing Guidelines](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/CONTRIBUTING.md) – 
+how to contribute
+- [Changelog](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/CHANGELOG.md) – version history
+
+---
+
+## Contributing
+
+We welcome contributions: examples, recipes, or other tools. Please read the [Contributing 
+Guidelines](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/CONTRIBUTING.md) before submitting 
+pull requests.
+
+---
+
+## Security
+
+To report any vulnerabilities, please reach out to [security@nvidia.com](mailto:security@nvidia.com)
+
+---
+
+## License
+
+Apache 2.0 License — see [LICENSE](https://github.com/NVIDIA-NeMo/Nemotron/blob/main/LICENSE) for 
+details.
+
+---
+
+**NVIDIA Nemotron** — Open and efficient models for agentic AI.

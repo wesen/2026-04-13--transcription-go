@@ -24,6 +24,14 @@ RelatedFiles:
       Note: Existing word/chunk persistence baseline
     - Path: /home/manuel/worktrees/2026-07-28--transcription-go-video-pipeline/server/server.py
       Note: Nemotron inference service reused by the proposed corpus runner
+    - Path: repo://ttmp/2026/07/28/VIDEO-CORPUS-PIPELINE--adapt-transcription-go-for-playlist-video-corpus-pipelines/sources/00-research-summary-apple-metal-optimization.md
+      Note: Apple Silicon optimization research summary
+    - Path: repo://ttmp/2026/07/28/VIDEO-CORPUS-PIPELINE--adapt-transcription-go-for-playlist-video-corpus-pipelines/sources/01-nemotron-asr-mlx-github.md
+      Note: Nemotron MLX port for Apple Silicon
+    - Path: repo://ttmp/2026/07/28/VIDEO-CORPUS-PIPELINE--adapt-transcription-go-for-playlist-video-corpus-pipelines/sources/03-whisper-cpp-github.md
+      Note: whisper.cpp with Metal GPU support
+    - Path: repo://ttmp/2026/07/28/VIDEO-CORPUS-PIPELINE--adapt-transcription-go-for-playlist-video-corpus-pipelines/sources/07-faster-whisper-vs-whisper-cpp-2026.md
+      Note: 2026 ASR tool comparison
 ExternalSources:
     - https://www.youtube.com/playlist?list=PLCTMeyjMKRkoS699U0OJ3ymr3r01sI08l
 Summary: Design ticket for a warm-service, resumable, corpus-wide video transcription pipeline built around the existing Go/Dagger/Nemotron implementation.
@@ -31,6 +39,7 @@ LastUpdated: 2026-07-28T00:00:00Z
 WhatFor: Coordinate analysis, design, implementation contracts, and operations for the corpus adaptation.
 WhenToUse: Start here when reviewing or resuming VIDEO-CORPUS-PIPELINE.
 ---
+
 
 # Adapt Transcription Go for Playlist Video Corpus Pipelines
 

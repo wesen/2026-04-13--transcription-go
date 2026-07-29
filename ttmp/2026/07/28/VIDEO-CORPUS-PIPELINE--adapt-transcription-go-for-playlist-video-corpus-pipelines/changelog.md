@@ -53,3 +53,8 @@ Streamed multipart uploads via io.Pipe and started the full 36-video Southwell c
 
 Video 001 (58 min) completed: 6850 words, 360 chunks, all DB invariants pass. Full corpus run ongoing in tmux.
 
+
+## 2026-07-28
+
+Saved 11 Apple Silicon optimization research sources to sources/ folder, including whisper.cpp Metal benchmarks, Nemotron MLX port, and PyTorch MPS guide.
+
