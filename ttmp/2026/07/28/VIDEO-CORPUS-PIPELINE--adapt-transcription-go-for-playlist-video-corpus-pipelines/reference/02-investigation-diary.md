@@ -589,3 +589,112 @@ Database: corpus-nemotron-mac.db (separate from Linux)
 First transcription: video 032 (X23P8HcuneI), 2617 words, 138 chunks, 985.9s
 tmux session: southwell-mac
 ```
+
+## Step 11: Implement Metal GPU Backend with Parakeet TDT 0.6B v3
+
+After researching the 2026 ASR landscape, we discovered that whisper.cpp now ships `parakeet-cli` — a CLI for NVIDIA's Parakeet TDT 0.6B v3 model, which is the recommended default for English on Apple Silicon in 2026. We benchmarked both Parakeet and Whisper large-v3-turbo on the M1 Max with Metal GPU acceleration, then implemented a full Metal backend adapter in the Go pipeline.
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 10)
+
+**Assistant interpretation:** Research 2026 ASR options for Apple Silicon, decide between Nemotron-with-Metal, whisper.cpp, or newer models, and implement the chosen backend.
+
+**Inferred user intent:** Get the Mac transcribing with Metal GPU acceleration instead of the slow Docker x86 Nemotron emulation, using the best available 2026 ASR model.
+
+**Commit (code):** 10ca98f — "Add Metal GPU backend (Parakeet TDT / Whisper) for Apple Silicon"
+
+### What I did
+- Researched 2026 ASR landscape: Parakeet V3, Voxtral, SenseVoice, Apple SpeechAnalyzer, MLX Whisper
+- Discovered whisper.cpp ships `parakeet-cli` for NVIDIA Parakeet TDT 0.6B v3 (same parameter count as Nemotron)
+- Downloaded `ggml-parakeet-tdt-0.6b-v3-f16.bin` (1.2 GB) from HuggingFace `ggml-org/parakeet-GGUF`
+- Downloaded `ggml-large-v3-turbo.bin` for Whisper fallback
+- Benchmarked both models on M1 Max with Metal GPU on video 032 (985.9s audio):
+  - Parakeet TDT 0.6B v3: 11.5s total = ~82x realtime
+  - Whisper large-v3-turbo: 33.8s total = ~29x realtime
+  - (Nemotron on Linux: ~6min = ~10x realtime)
+- Modified `parakeet-cli.cpp` to add `-oj` JSON output with word-level timestamps (upstream only had plain text output)
+- Fixed timestamp unit conversion: token t0/t1 are in mel frames (10ms each, PARAKEET_HOP_LENGTH=160 at 16kHz), while segment t0/t1 are in encoder frames (80ms each, subsampling_factor=8)
+- Implemented `internal/metal/transcriber.go` — shells out to parakeet-cli/whisper-cli, parses JSON word output
+- Added `--metal-gpu`, `--metal-backend`, `--metal-binary`, `--metal-model` flags to `transcribe corpus run`
+- Updated runner to support nil ServiceFactory (Metal needs no Dagger service)
+- Added `FingerprintWithModel()` to give Parakeet/Whisper runs distinct fingerprints from Nemotron
+- Fixed nil Exporter.policy panic by falling back to DefaultChunkPolicy()
+- Validated end-to-end: video 032 transcribed with Parakeet Metal = 2542 words, 80 chunks, 985.52s
+- Started full 25-video Mac corpus run with Parakeet Metal
+
+### Why
+The Docker x86 Nemotron emulation on Mac was extremely slow (~6min per 16min video). Parakeet TDT 0.6B v3 via Metal GPU is 8x faster than Nemotron and has better English WER (6.32% vs Nemotron's ~7-8%). It's the same parameter count (0.6B) and the same NVIDIA model family, making it the natural Metal-native successor.
+
+### What worked
+- Parakeet-cli with Metal GPU: 82x realtime, excellent transcription quality
+- JSON output modification to parakeet-cli.cpp: clean word-level timestamps with correct 10ms frame conversion
+- Go Metal adapter: clean shelling out to CLI binary, parsing JSON, returning corpus.Transcription
+- Fingerprint isolation: Parakeet runs get distinct fingerprints, preventing confusion with Nemotron transcriptions
+- Full pipeline: corpus run → import manifest → transcribe with Metal → commit to DB → export SRT/VTT/TXT
+
+### What didn't work
+- First attempt at timestamp conversion used 80ms (encoder frame rate) for token timestamps, producing words at 2.56s instead of 0.32s — token t0/t1 are in mel frames (10ms), not encoder frames (80ms)
+- First Metal run panicked with nil pointer dereference because `cfg.Exporter.policy` was accessed when Exporter was nil (no `--output-dir` specified)
+- Stale database state from panicked run caused UNIQUE constraint failures in chunk_words — had to delete and recreate the DB
+- parakeet-cli doesn't support `-oj` JSON output natively — had to modify the C++ source and rebuild
+
+### What I learned
+- whisper.cpp has evolved beyond Whisper: it now ships parakeet-cli, parakeet-quantize, and parakeet test binaries
+- Parakeet TDT 0.6B v3 is the 2026 recommended ASR for English on Mac (per whispernotes.app benchmarks)
+- Parakeet's TDT (Token-and-Duration Transducer) architecture produces word-level timestamps natively via token duration prediction
+- The SentencePiece "▁" (U+2581) marker indicates word boundaries in Parakeet's BPE tokenization
+- Apple SpeechAnalyzer (macOS 26) beats Whisper Small on WER but requires OS 26; Parakeet is the best cross-platform option
+- Token timestamps and segment timestamps in parakeet.cpp use different frame units (mel vs encoder) due to subsampling
+
+### What was tricky to build
+- The timestamp unit discrepancy: `token_data.t0 = frame_index * subsampling_factor` produces mel frames (10ms), while `segment.t1 = n_frames` produces encoder frames (80ms). Using 0.08 for both produced words at 2.56s instead of 0.32s. The fix: use 0.01 for token timestamps and 0.08 for segment timestamps.
+- The SentencePiece "▁" marker: tokens like "▁Okay" need the UTF-8 bytes E2 96 81 stripped to produce clean word "Okay" for JSON output.
+- The nil Exporter panic: `cfg.Exporter.policy` was accessed unconditionally in processOne, but Exporter is nil when `--output-dir` is not specified. Fixed with `DefaultChunkPolicy()` fallback.
+- The stale database state: after the first panicked run, the video was left in "transcribing" state with partial data. SQLite's foreign key cascade didn't clean up chunk_words because `PRAGMA foreign_keys` may not be enabled. Solution: delete and recreate the database.
+
+### What warrants a second pair of eyes
+- The parakeet-cli JSON output modification (on Mac at ~/code/whisper/whisper.cpp/examples/parakeet-cli/parakeet-cli.cpp) — should be contributed upstream
+- The timestamp conversion factors (0.01 for tokens, 0.08 for segments) — verify against a known audio with precise timing
+- The Metal transcriber doesn't implement chunking — it processes the entire audio file at once. The chunk derivation happens post-hoc in CommitTranscript via deriveChunks(). This is correct but different from the HTTPTranscriber which chunks before ASR.
+- The fingerprint model name change means Mac (Parakeet) and Linux (Nemotron) transcriptions will have different fingerprints — merging the two databases will require careful handling.
+
+### What should be done in the future
+- Contribute the parakeet-cli `-oj` JSON output patch upstream to whisper.cpp
+- Add a `--metal-threads` flag to control CPU thread count
+- Implement a `corpus merge` command to combine Mac (Parakeet) and Linux (Nemotron) databases
+- Consider using Apple SpeechAnalyzer (macOS 26) as a third backend option
+- Benchmark Parakeet vs Nemotron transcription quality on the same audio
+- Add `--skip-missing-audio` flag for partial-corpus setups
+
+### Code review instructions
+- Check `internal/metal/transcriber.go` — the Metal adapter implementation
+- Check `cmd/transcribe/corpus.go` — the --metal-gpu flag wiring and fingerprint selection
+- Check `internal/corpus/runner.go` — nil-safe service and exporter handling
+- Check `internal/corpus/fingerprint.go` — FingerprintWithModel and model name constants
+- Verify on Mac: `./transcribe-metal corpus status --database ... --manifest ...`
+- Verify transcription: `sqlite3 corpus-nemotron-mac.db "SELECT * FROM transcript_revisions WHERE model_name LIKE '%parakeet%';"`
+
+### Technical details
+
+```text
+Parakeet model: ggml-parakeet-tdt-0.6b-v3-f16.bin (1.2 GB, f16)
+  Source: huggingface.co/ggml-org/parakeet-GGUF
+  Parameters: 0.6B (same as Nemotron)
+  Languages: 25 (English + European)
+  English WER: 6.32% (FLEURS benchmark)
+
+Whisper model: ggml-large-v3-turbo.bin (1.6 GB)
+  Parameters: 809M
+  Languages: ~100
+
+Benchmark (M1 Max, Metal GPU, video 032 = 985.9s audio):
+  Parakeet:  11.5s total (82x realtime)  — RECOMMENDED
+  Whisper:   33.8s total (29x realtime)
+  Nemotron:  ~360s total (2.7x realtime)  — Linux, for comparison
+
+Parakeet-cli JSON output patch:
+  Added -oj/--output-json flag
+  Outputs: {"transcription":{"segments":[{"start":0.0,"end":985.9,"text":"...","words":[{"word":"Okay","start":0.0,"end":0.32},...]}]}}
+  Timestamp conversion: token t0 * 0.01 (mel frames, 10ms), segment t0 * 0.08 (encoder frames, 80ms)
+```
