@@ -58,3 +58,8 @@ Video 001 (58 min) completed: 6850 words, 360 chunks, all DB invariants pass. Fu
 
 Saved 11 Apple Silicon optimization research sources to sources/ folder, including whisper.cpp Metal benchmarks, Nemotron MLX port, and PyTorch MPS guide.
 
+
+## 2026-07-28
+
+Set up Mac M1 Max as second transcription node: all tools installed, repo cloned, 25 audio files copied, video 032 transcribed (2617 words). All 21 verification checks pass.
+

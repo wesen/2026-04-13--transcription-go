@@ -484,3 +484,108 @@ This validates:
 - chunk derivation and FTS indexing work at scale;
 - the runner correctly transitions from one video to the next without service restart;
 - resume planning correctly skipped video 019 and started with video 001.
+
+## Step 7: Set up Mac M1 Max as second transcription node
+
+The Mac at mimimi-2.local was set up as a parallel transcription node for the Southwell corpus. Homebrew was already installed; all remaining tools were installed via brew. The pi CLI, docmgr, and remarquee were set up. The transcription-go repository was already cloned on the Mac — it just needed SSH key setup for GitHub access and a fetch/checkout of the feature branch.
+
+### Prompt Context
+
+**User prompt (verbatim):** "I want to run this on my mac M1 at mimimi-2.local. It needs to have pi.dev coding agent installed (and the local settings setup, with skills and docmgr and remarquee (so clone that stuff over there as well). You have ssh access. You'll need to copy over at least some of the videos."
+
+**Assistant interpretation:** Set up the Mac M1 Max as a complete development and transcription environment: install all tools, copy pi settings/skills, clone the repo, copy audio files, and start transcribing.
+
+**Inferred user intent:** Use the Mac as a second parallel transcription node to speed up the 78-hour Southwell corpus.
+
+### What I did
+- Installed via brew: node (v26.5.0), git, ffmpeg (8.1.2), ffprobe, yt-dlp (2026.07.04), go (1.26.5 darwin/arm64), dagger (v0.21.7).
+- Installed pi CLI via `npm install -g @earendil-works/pi-coding-agent@0.82.1`.
+- Copied ~/.pi/agent settings (settings.json, models.json, auth.json, trust.json, extensions, prompts, pinned-skills.json) from Linux, skipping 3.1G of sessions/logs.
+- Copied ~/.pi/providers/kimi-coding.
+- Copied ~/.agents/skills/ (a14y, defuddle, find-skills, json-canvas, obsidian-bases, obsidian-cli, obsidian-markdown).
+- Installed docmgr via `go install github.com/go-go-golems/docmgr/cmd/docmgr@latest`.
+- Installed remarquee by cloning go-go-golems/remarquee and building from source (go.mod replace directives prevented `go install`).
+- Set up SSH key for GitHub access (copied Linux's id_ed25519 to Mac as id_ed25519-github, added to ~/.ssh/config).
+- Used the existing clone at ~/code/wesen/2026-04-13--transcription-go, fetched origin, checked out feature/video-pipeline-corpus.
+- Built the binary: `go build -o transcribe ./cmd/transcribe` — BUILD OK.
+- Ran all tests: `go test ./... -count=1` — 5 packages pass.
+- Created Mac-specific manifest (transcription-manifest-mac.json) with correct ~/ paths, marking 11 already-completed videos as unavailable so validation passes.
+- Copied 25 audio files (7.6 GB) for pending videos to ~/Movies/richard-southwell-category-theory-for-beginners/audio/.
+- Copied corpus DB as corpus-nemotron-mac.db (separate from Linux's DB to avoid concurrent access corruption).
+- Fixed Docker Desktop PATH issue: docker CLI wasn't in PATH; added /Applications/Docker.app/Contents/Resources/bin to PATH.
+- Started real transcription in tmux (session southwell-mac).
+- Video 032 (X23P8HcuneI, 985.9s) completed: 2617 words, 138 chunks, committed as revision 12.
+
+### Why
+- The Mac M1 Max (64 GB RAM) is a powerful second node for parallel transcription.
+- Running two machines in parallel halves the wall-clock time for the 78-hour corpus.
+- The Mac also opens the door to Apple Metal GPU acceleration (researched and documented in sources/).
+
+### What worked
+- All 21 verification checks pass:
+  1. Homebrew 6.0.13
+  2. Node.js v26.5.0
+  3. git 2.50.1
+  4. ffmpeg 8.1.2
+  5. ffprobe 8.1.2
+  6. yt-dlp 2026.07.04
+  7. pi 0.82.1
+  8. docmgr works (FTS5 tables created)
+  9. remarquee works (--help prints)
+  10. Go 1.26.5 darwin/arm64
+  11. Dagger v0.21.7
+  12. ~/.pi agent settings copied
+  13. ~/.agents skills copied
+  14. transcription-go repo on correct branch
+  15. Binary builds
+  16. All tests pass
+  17. 25 audio files (7.6 GB) on Mac
+  18. Manifest exists (both original and Mac-specific)
+  19. Corpus DB exists (12.8 MB)
+  20. Dry-run works (shows correct planning state)
+  21. Real transcription completed (video 032: 2617 words)
+
+### What didn't work
+- Homebrew install initially failed (sudo password required), but brew was already installed.
+- Dagger initially failed with "driver for scheme image was not available" because Docker Desktop's docker CLI wasn't in PATH. Fixed by adding /Applications/Docker.app/Contents/Resources/bin to PATH.
+- remarquee couldn't be installed via `go install` because go.mod has replace directives. Built from a cloned source instead.
+- The manifest validation checks ALL items even with --source-id filter. Marked already-completed videos as unavailable in the Mac manifest to pass validation.
+
+### What I learned
+- The Mac already had a clone of the transcription-go repo — it just needed SSH key setup and branch checkout.
+- Docker Desktop on Mac provides the docker socket that Dagger needs, but the docker CLI isn't in the default PATH.
+- The Mac runs Nemotron in Docker x86 emulation, which is slower than native. Apple Metal/MPS optimization is a clear next step.
+- The corpus pipeline's manifest validation is too strict for partial-corpus setups — marking completed videos as unavailable is a workaround, but a --skip-missing flag would be cleaner.
+
+### What was tricky to build
+- The Mac-specific manifest needed path rewriting (/home/manuel → /Users/manuel) and availability marking for completed videos.
+- Dagger on Mac requires Docker Desktop's docker CLI in PATH, which is not in the default shell PATH.
+
+### What warrants a second pair of eyes
+- The Mac runs Nemotron in Docker x86 emulation. Native Python with MPS or whisper.cpp with Metal would be significantly faster.
+- The two machines use separate database files. Merging results later requires careful coordination.
+- The Mac manifest marks completed videos as "missing" rather than "complete" — this is a validation workaround, not ideal.
+
+### What should be done in the future
+- Add a whisper.cpp Transcriber implementation for native Apple Metal GPU acceleration.
+- Try running Nemotron natively on macOS with PyTorch MPS.
+- Merge the Mac and Linux corpus databases after both complete.
+- Add a --skip-missing-audio flag to the corpus command for partial-corpus setups.
+- Start the full 24-video Mac corpus run (all pending videos).
+
+### Code review instructions
+- SSH to mimimi-2.local and verify each tool.
+- Check `git branch --show-current` in ~/code/wesen/2026-04-13--transcription-go.
+- Run `./transcribe corpus run --manifest ... --dry-run` on the Mac.
+- Inspect corpus-nemotron-mac.db for video 032's committed revision.
+
+### Technical details
+
+```text
+Mac: mimimi-2.local, Apple M1 Max, 64 GB RAM, macOS 15.7.7
+Repo: ~/code/wesen/2026-04-13--transcription-go (branch feature/video-pipeline-corpus)
+Audio: 25 files, 7.6 GB
+Database: corpus-nemotron-mac.db (separate from Linux)
+First transcription: video 032 (X23P8HcuneI), 2617 words, 138 chunks, 985.9s
+tmux session: southwell-mac
+```
