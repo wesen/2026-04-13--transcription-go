@@ -19,6 +19,12 @@ const WordSchema = "word-timestamps/v1"
 // ModelName is the Nemotron model used by the reference service.
 const ModelName = "nvidia/nemotron-speech-streaming-en-0.6b"
 
+// ParakeetModelName is the NVIDIA Parakeet TDT 0.6B v3 model used via Metal GPU.
+const ParakeetModelName = "nvidia/parakeet-tdt-0.6b-v3-ggml"
+
+// WhisperTurboModelName is the OpenAI Whisper large-v3-turbo model used via Metal GPU.
+const WhisperTurboModelName = "openai/whisper-large-v3-turbo-ggml"
+
 // Fingerprint captures the settings that change transcript output.
 type Fingerprint struct {
 	Schema                string              `json:"schema"`
@@ -43,12 +49,18 @@ type DecodingFingerprint struct {
 // DefaultFingerprint returns the fingerprint matching the current server.py
 // configuration and the default 60s/2s chunking policy.
 func DefaultFingerprint(chunkSize int) Fingerprint {
+	return FingerprintWithModel(chunkSize, ModelName)
+}
+
+// FingerprintWithModel returns a fingerprint using a custom model name.
+// Use this when running with a non-Nemotron backend (e.g. Parakeet via Metal GPU).
+func FingerprintWithModel(chunkSize int, modelName string) Fingerprint {
 	if chunkSize <= 0 {
 		chunkSize = 60
 	}
 	return Fingerprint{
 		Schema:        SchemaFingerprint,
-		Model:         ModelName,
+		Model:         modelName,
 		ModelRevision: "unpinned",
 		Decoding: DecodingFingerprint{
 			PreserveAlignments: true,

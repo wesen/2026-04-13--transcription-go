@@ -24,6 +24,12 @@ type Service interface {
 	Stop() error
 }
 
+// NoService is a no-op service for backends that don't need a running service (e.g. Metal GPU).
+type NoService struct{}
+
+func (NoService) Endpoint() string { return "" }
+func (NoService) Stop() error     { return nil }
+
 // ServiceFactory starts one warm service.
 type ServiceFactory interface {
 	Start(ctx context.Context) (Service, error)

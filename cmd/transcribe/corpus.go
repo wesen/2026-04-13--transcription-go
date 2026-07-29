@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-go-golems/transcription-go/internal/asr"
 	"github.com/go-go-golems/transcription-go/internal/corpus"
+	"github.com/go-go-golems/transcription-go/internal/metal"
 	"github.com/go-go-golems/transcription-go/internal/server"
 	"github.com/spf13/cobra"
 )
@@ -24,6 +25,10 @@ type corpusOptions struct {
 	dryRun       bool
 	failFast     bool
 	verbose      bool
+	metalBackend string
+	metalBinary  string
+	metalModel   string
+	metalGPU     bool
 }
 
 func defaultCorpusOptions() corpusOptions {
@@ -46,6 +51,9 @@ func newCorpusCmd() *cobra.Command {
 	cmd.PersistentFlags().IntVar(&opts.chunkSize, "chunk-size", opts.chunkSize, "Seconds per ASR chunk")
 	cmd.PersistentFlags().StringVar(&opts.serverDir, "server-dir", opts.serverDir, "Path to Python server directory")
 	cmd.PersistentFlags().BoolVarP(&opts.verbose, "verbose", "v", opts.verbose, "Verbose output")
+	cmd.PersistentFlags().StringVar(&opts.metalBackend, "metal-backend", opts.metalBackend, "Metal ASR backend: parakeet, whisper, or empty (default: Nemotron/Dagger)")
+	cmd.PersistentFlags().StringVar(&opts.metalBinary, "metal-binary", opts.metalBinary, "Path to parakeet-cli or whisper-cli binary")
+	cmd.PersistentFlags().StringVar(&opts.metalModel, "metal-model", opts.metalModel, "Path to ggml model file for Metal backend")
 
 	runCmd := &cobra.Command{
 		Use:   "run",
@@ -60,6 +68,7 @@ func newCorpusCmd() *cobra.Command {
 	runCmd.Flags().BoolVar(&opts.retryFailed, "retry-failed", opts.retryFailed, "Retry failed videos")
 	runCmd.Flags().BoolVar(&opts.dryRun, "dry-run", opts.dryRun, "Plan only; do not start the ASR service or transcribe")
 	runCmd.Flags().BoolVar(&opts.failFast, "fail-fast", opts.failFast, "Stop on first failure")
+	runCmd.Flags().BoolVar(&opts.metalGPU, "metal-gpu", opts.metalGPU, "Use Metal GPU backend (parakeet-cli or whisper-cli) instead of Nemotron/Dagger")
 
 	statusCmd := &cobra.Command{
 		Use:   "status",
@@ -109,6 +118,19 @@ func runCorpusRun(ctx context.Context, opts corpusOptions) error {
 	defer store.Close()
 
 	fingerprint := corpus.DefaultFingerprint(opts.chunkSize)
+	if opts.metalGPU {
+		switch opts.metalBackend {
+		case "parakeet":
+			fingerprint = corpus.FingerprintWithModel(opts.chunkSize, corpus.ParakeetModelName)
+		case "whisper":
+			fingerprint = corpus.FingerprintWithModel(opts.chunkSize, corpus.WhisperTurboModelName)
+		default:
+			if opts.metalBackend != "" {
+				return fmt.Errorf("unknown --metal-backend %q (use parakeet or whisper)", opts.metalBackend)
+			}
+			return fmt.Errorf("--metal-backend is required when using --metal-gpu")
+		}
+	}
 	policy := corpus.DefaultChunkPolicy()
 	var exporter *corpus.Exporter
 	if opts.outputDir != "" {
@@ -117,13 +139,28 @@ func runCorpusRun(ctx context.Context, opts corpusOptions) error {
 
 	var factory corpus.ServiceFactory
 	var transcriberFactory func(endpoint string) corpus.Transcriber
-	if !opts.dryRun {
+	if !opts.dryRun && !opts.metalGPU {
 		resolvedServerDir, err := server.ResolveServerDir(opts.serverDir)
 		if err != nil {
 			return err
 		}
 		factory = &daggerServiceFactory{serverDir: resolvedServerDir}
 		transcriberFactory = asrTranscriberFactory(opts.chunkSize)
+	}
+
+	// When using Metal GPU backend, no Dagger service is needed — the binary runs locally.
+	if !opts.dryRun && opts.metalGPU {
+		if opts.metalBinary == "" || opts.metalModel == "" {
+			return fmt.Errorf("--metal-binary and --metal-model are required when using --metal-gpu")
+		}
+		mt := metal.NewTranscriber(metal.Config{
+			BinaryPath: opts.metalBinary,
+			ModelPath:  opts.metalModel,
+			Engine:     metal.Engine(opts.metalBackend),
+			Threads:    4,
+		})
+		// Metal transcriber doesn't need a service endpoint — wrap it in a factory that ignores the endpoint.
+		transcriberFactory = func(string) corpus.Transcriber { return mt }
 	}
 
 	cfg := corpus.RunConfig{

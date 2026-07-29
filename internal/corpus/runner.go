@@ -78,22 +78,35 @@ func Run(ctx context.Context, cfg RunConfig) (*PlanSummary, error) {
 		return summary, nil
 	}
 
-	if cfg.ServiceFactory == nil || cfg.TranscriberFactory == nil {
-		return summary, fmt.Errorf("service factory and transcriber factory are required for a real run")
+	if cfg.ServiceFactory == nil && cfg.TranscriberFactory == nil {
+		return summary, fmt.Errorf("either a service factory or a transcriber factory is required for a real run")
 	}
 
-	log.Printf("Starting ASR service...")
-	service, err := cfg.ServiceFactory.Start(ctx)
-	if err != nil {
-		return summary, fmt.Errorf("start service: %w", err)
-	}
-	defer func() {
-		if err := service.Stop(); err != nil {
-			log.Printf("service stop: %v", err)
+	var service Service
+	var transcriber Transcriber
+
+	if cfg.ServiceFactory != nil {
+		log.Printf("Starting ASR service...")
+		s, err := cfg.ServiceFactory.Start(ctx)
+		if err != nil {
+			return summary, fmt.Errorf("start service: %w", err)
 		}
-	}()
-	log.Printf("ASR service ready at %s", service.Endpoint())
-	transcriber := cfg.TranscriberFactory(service.Endpoint())
+		defer func() {
+			if err := s.Stop(); err != nil {
+				log.Printf("service stop: %v", err)
+			}
+		}()
+		log.Printf("ASR service ready at %s", s.Endpoint())
+		service = s
+	}
+
+	if cfg.TranscriberFactory != nil {
+		endpoint := ""
+		if service != nil {
+			endpoint = service.Endpoint()
+		}
+		transcriber = cfg.TranscriberFactory(endpoint)
+	}
 
 	var failures []error
 	for _, item := range work {
@@ -123,7 +136,11 @@ func Run(ctx context.Context, cfg RunConfig) (*PlanSummary, error) {
 
 func processOne(ctx context.Context, cfg RunConfig, transcriber Transcriber, v Video, service Service) error {
 	log.Printf("Transcribing: %s (%s)", v.SourceID, v.Title)
-	attempt, err := cfg.Store.BeginAttempt(ctx, v, cfg.Fingerprint, service.Endpoint())
+	endpoint := ""
+	if service != nil {
+		endpoint = service.Endpoint()
+	}
+	attempt, err := cfg.Store.BeginAttempt(ctx, v, cfg.Fingerprint, endpoint)
 	if err != nil {
 		return fmt.Errorf("begin attempt: %w", err)
 	}
@@ -132,7 +149,11 @@ func processOne(ctx context.Context, cfg RunConfig, transcriber Transcriber, v V
 		_ = cfg.Store.FailAttempt(ctx, attempt, "asr", err.Error(), 0, 0, 0)
 		return fmt.Errorf("transcribe: %w", err)
 	}
-	rev, err := cfg.Store.CommitTranscript(ctx, v, attempt, cfg.Fingerprint, result, cfg.Exporter.policy)
+	policy := DefaultChunkPolicy()
+	if cfg.Exporter != nil {
+		policy = cfg.Exporter.policy
+	}
+	rev, err := cfg.Store.CommitTranscript(ctx, v, attempt, cfg.Fingerprint, result, policy)
 	if err != nil {
 		_ = cfg.Store.FailAttempt(ctx, attempt, "commit", err.Error(), result.ProcessingTime.Milliseconds(), result.ChunkCount, len(result.Words))
 		return fmt.Errorf("commit: %w", err)
